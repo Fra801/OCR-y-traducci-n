@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OCR y traducción</title>
+<meta name="description" content="Pasá un PDF (con texto o escaneado) a texto estructurado y, si querés, traducilo fielmente. Funciona en el navegador con tu API key de Gemini.">
+<meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="OCR y traducción">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <header class="top">
+    <button class="brand" id="homeBtn" title="Inicio">
+      <span class="mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="word">OCR <em>y</em> traducción</span>
+    </button>
+    <div class="top-actions">
+      <button class="ghost" id="historyBtn"><svg viewBox="0 0 24 24"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8.5"/></svg><span>Historial</span></button>
+      <button class="ghost key" id="settingsBtn"><span class="dot" id="keyDot"></span><span id="keyLabel">API key</span></button>
+    </div>
+  </header>
+
+  <!-- ============ INICIO ============ -->
+  <main class="home" id="home">
+    <section class="hero">
+      <p class="eyebrow">PDF · OCR · traducción fiel</p>
+      <h1>Del papel escaneado<br>al texto que podés <em>leer, copiar</em> y <em>traducir</em>.</h1>
+      <p class="lede">Subí un libro, un apunte o un documento. Las páginas que ya tienen texto se leen al instante; las escaneadas pasan por OCR con Gemini. Todo queda ordenado en títulos, párrafos, listas, tablas y notas.</p>
+    </section>
+
+    <label class="drop" id="drop">
+      <input type="file" id="fileInput" accept="application/pdf,.pdf" hidden>
+      <span class="drop-sheet" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="drop-t">Soltá un PDF acá</span>
+      <span class="drop-s">o <u>elegilo desde tu equipo</u> · hasta ~50 MB, cientos de páginas</span>
+    </label>
+
+    <ul class="features">
+      <li><b>Página por página.</b> Detecta qué páginas tienen texto y cuáles son imágenes, y usa OCR solo donde hace falta.</li>
+      <li><b>Libros enteros.</b> Procesa por tramos, muestra el avance y, si algo falla, retoma desde donde quedó.</li>
+      <li><b>Privado.</b> El PDF y tu API key quedan en este navegador; solo viajan a Google para el OCR.</li>
+    </ul>
+
+    <section class="recents" id="recents" hidden>
+      <h2>Recientes</h2>
+      <div class="recent-list" id="recentList"></div>
+    </section>
+  </main>
+
+  <!-- ============ DOCUMENTO ============ -->
+  <main class="work" id="work" hidden>
+    <aside class="side" id="side">
+      <div class="panel file">
+        <div class="file-ic" aria-hidden="true">PDF</div>
+        <div class="file-meta">
+          <div class="file-name" id="fileName"></div>
+          <div class="file-sub" id="fileSub"></div>
+        </div>
+        <button class="icon-btn" id="closeDoc" title="Cerrar documento"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+
+      <div class="panel">
+        <div class="ph">
+          <h3>Mapa de páginas</h3>
+          <div class="legend"><span class="lg t">texto</span><span class="lg s">escaneada</span></div>
+        </div>
+        <div class="analysis" id="analysis"></div>
+        <div class="pagemap" id="pagemap"></div>
+        <div class="preview" id="preview" hidden>
+          <canvas id="previewCanvas"></canvas>
+          <div class="preview-cap" id="previewCap"></div>
+        </div>
+      </div>
+
+      <div class="panel opts" id="opts">
+        <h3>Qué hacer</h3>
+
+        <div class="field">
+          <span class="lbl">Páginas</span>
+          <div class="range">
+            <input type="number" id="fromPage" min="1" value="1" inputmode="numeric" aria-label="Desde">
+            <span>a</span>
+            <input type="number" id="toPage" min="1" value="1" inputmode="numeric" aria-label="Hasta">
+            <button class="chip" id="allPages">Todas</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <span class="lbl">Lectura</span>
+          <div class="seg" id="modeSeg" role="radiogroup">
+            <button data-v="auto" class="on" role="radio">Automática</button>
+            <button data-v="ocr" role="radio">Todo con OCR</button>
+            <button data-v="text" role="radio">Solo texto</button>
+          </div>
+          <p class="hint" id="modeHint"></p>
+        </div>
+
+        <div class="field toggle-row">
+          <div>
+            <span class="lbl">Traducir</span>
+            <p class="hint">Traducción fiel y literal, sin resumir.</p>
+          </div>
+          <label class="switch"><input type="checkbox" id="translate"><span></span></label>
+        </div>
+
+        <div class="trans-opts" id="transOpts" hidden>
+          <div class="field">
+            <span class="lbl">Al idioma</span>
+            <select id="targetLang">
+              <option>español</option><option>inglés</option><option>portugués</option><option>francés</option><option>italiano</option><option>alemán</option>
+            </select>
+          </div>
+          <label class="check"><input type="checkbox" id="bilingual"> Guardar también el original para verlo al lado</label>
+          <details class="glossary">
+            <summary>Glosario o indicaciones</summary>
+            <textarea id="glossary" rows="3" placeholder="Ej.: «muzzle velocity» → velocidad en boca. Usar voseo. Mantener las unidades imperiales."></textarea>
+          </details>
+        </div>
+
+        <details class="adv">
+          <summary>Avanzado</summary>
+          <div class="field">
+            <span class="lbl">Modelo</span>
+            <select id="modelSel"></select>
+          </div>
+          <div class="field two">
+            <label><span class="lbl">Páginas por pedido de OCR</span><input type="number" id="ocrPages" min="1" max="15" value="4"></label>
+            <label><span class="lbl">Pedidos en paralelo</span><input type="number" id="parallel" min="1" max="6" value="2"></label>
+          </div>
+          <p class="hint">Con la key gratuita conviene 1 o 2 en paralelo. Menos páginas por pedido = más precisión en páginas densas.</p>
+        </details>
+
+        <button class="primary" id="runBtn" disabled>Procesar</button>
+        <div class="run-row" id="runRow" hidden>
+          <div class="progress"><i id="progBar"></i></div>
+          <div class="run-info"><span id="progText"></span><button class="link" id="stopBtn">Detener</button></div>
+          <div class="wait" id="waitNote" hidden></div>
+        </div>
+        <div class="err-box" id="errBox" hidden></div>
+      </div>
+    </aside>
+
+    <section class="reader-col">
+      <div class="reader-bar" id="readerBar">
+        <div class="rb-left">
+          <div class="menu-wrap">
+            <button class="tool" id="tocBtn" disabled><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h13"/></svg><span>Índice</span></button>
+            <div class="menu toc" id="tocMenu" hidden></div>
+          </div>
+          <div class="search">
+            <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg>
+            <input id="searchIn" type="search" placeholder="Buscar en el texto" disabled>
+            <span class="s-count" id="sCount"></span>
+            <button class="s-nav" id="sPrev" title="Anterior" hidden>↑</button>
+            <button class="s-nav" id="sNext" title="Siguiente" hidden>↓</button>
+          </div>
+        </div>
+        <div class="rb-right">
+          <div class="seg small" id="viewSeg" hidden>
+            <button data-v="t" class="on">Traducción</button>
+            <button data-v="bi">Lado a lado</button>
+            <button data-v="o">Original</button>
+          </div>
+          <button class="tool sq" id="fontDown" title="Letra más chica">A−</button>
+          <button class="tool sq" id="fontUp" title="Letra más grande">A+</button>
+          <button class="tool" id="copyBtn" disabled><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg><span>Copiar</span></button>
+          <div class="menu-wrap">
+            <button class="tool dark" id="exportBtn" disabled><svg viewBox="0 0 24 24"><path d="M12 4v11m0 0l-4-4m4 4l4-4M5 19h14"/></svg><span>Exportar</span></button>
+            <div class="menu right" id="exportMenu" hidden>
+              <button data-x="doc"><b>Word</b><small>.doc con formato</small></button>
+              <button data-x="md"><b>Markdown</b><small>.md para notas</small></button>
+              <button data-x="txt"><b>Texto</b><small>.txt plano</small></button>
+              <button data-x="html"><b>Página web</b><small>.html</small></button>
+              <button data-x="print"><b>Imprimir o PDF</b><small>desde el navegador</small></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="meta-row" id="metaRow"></div>
+      <article class="reader" id="reader">
+        <div class="empty" id="readerEmpty">
+          <div class="empty-art" aria-hidden="true"><i></i><i></i><i></i></div>
+          <p>Elegí las opciones y tocá <b>Procesar</b>. El texto va apareciendo acá a medida que se lee cada tramo de páginas.</p>
+        </div>
+      </article>
+    </section>
+  </main>
+</div>
+
+<!-- ============ AJUSTES ============ -->
+<dialog class="sheet" id="settingsDlg">
+  <form method="dialog" class="sheet-in" id="settingsForm">
+    <header><h2>Tu API key de Gemini</h2><button class="icon-btn" value="cancel" formnovalidate><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+    <p class="muted">La app llama a Gemini directamente desde tu navegador. La key se guarda solo en este dispositivo. Conseguila gratis en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> → <i>Create API key</i>.</p>
+    <div class="key-row">
+      <input type="password" id="keyIn" placeholder="AIza…" autocomplete="off" spellcheck="false">
+      <button type="button" class="tool sq" id="keyShow" title="Mostrar">👁</button>
+    </div>
+    <div class="key-actions">
+      <button type="button" class="tool" id="keyTest">Probar y cargar modelos</button>
+      <span class="key-msg" id="keyMsg"></span>
+    </div>
+    <p class="muted small">Con la key gratuita, Google puede usar el contenido enviado para mejorar sus productos. Para documentos confidenciales usá una key con facturación activada.</p>
+    <footer><button type="button" class="link danger" id="keyDel">Borrar key</button><button class="primary" value="save" id="keySave">Guardar</button></footer>
+  </form>
+</dialog>
+
+<!-- ============ HISTORIAL ============ -->
+<dialog class="sheet" id="historyDlg">
+  <div class="sheet-in">
+    <header><h2>Historial</h2><button class="icon-btn" id="historyClose"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+    <p class="muted">Los documentos quedan guardados en este navegador, con el PDF, para releerlos o terminar de procesarlos.</p>
+    <div class="recent-list" id="historyList"></div>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
