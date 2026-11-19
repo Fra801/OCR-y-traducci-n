@@ -9,13 +9,23 @@ Pasá un PDF a texto ordenado (títulos, párrafos, listas, tablas, citas y nota
 1. **Lee cada página en el navegador.** Las páginas que ya tienen texto seleccionable se leen al instante, sin gastar OCR. Las que son imágenes (escaneos) se marcan para OCR. El **mapa de páginas** muestra cuáles son cuáles.
 2. **Procesa por tramos.** El documento se divide en pedidos chicos a Gemini: unas 12.000 letras de texto por pedido, o 4 páginas escaneadas (ajustable). Así la respuesta nunca se corta y el avance se ve página por página. Si una respuesta igual se corta, ese tramo se divide en dos y se vuelve a pedir.
 3. **Se recupera sola de los errores.** Si Gemini está saturado, reintenta con espera creciente (respeta el tiempo que indica Google) y después prueba con otros modelos. Si algo falla o la detenés, **Continuar** retoma desde donde quedó, incluso otro día: todo queda guardado en el **Historial**.
-4. **Traduce sin resumir.** Traducción fiel al español (u otro idioma), con el mismo tono y registro. Podés guardar el original para leerlo **lado a lado** y agregar un **glosario** para que los términos técnicos salgan siempre iguales.
+4. **Fórmulas en LaTeX.** Las ecuaciones salen escritas en LaTeX y se dibujan con KaTeX, como en un libro. Las páginas con fórmulas se leen con visión aunque tengan texto seleccionable, porque ese texto suele traer las fórmulas rotas.
+5. **Figuras recortadas.** Fotos, gráficos y diagramas se recortan de la página y quedan en su lugar dentro del texto (tocándolas se ven en grande). Opcionalmente, Gemini agrega una descripción breve de cada una, marcada como «Descripción».
+6. **Traduce sin resumir.** Traducción fiel al español (u otro idioma), con el mismo tono y registro. Podés guardar el original para leerlo **lado a lado** y agregar un **glosario** para que los términos técnicos salgan siempre iguales.
 
 ## Qué podés hacer con el resultado
 
 - Leerlo con índice, buscador (sin importar tildes), número de página en el margen y tamaño de letra ajustable.
 - Ver la traducción, el original o los dos lado a lado.
 - Copiar todo, o exportarlo a **Word (.doc)**, **Markdown**, **texto**, **página web** o **PDF** (con Imprimir).
+
+| Formato | Fórmulas | Figuras |
+|---|---|---|
+| Imprimir / PDF | dibujadas (KaTeX) | sí |
+| Página web (.html) | dibujadas (MathML) | sí, incrustadas |
+| Markdown (.md) | `$…$` y `$$…$$` (Obsidian, Notion, Typora) | sí, incrustadas |
+| Word (.doc) | código LaTeX: en Word 365 se seleccionan y se insertan como ecuación (modo LaTeX) | sí |
+| Texto (.txt) | código LaTeX | se indica «[Figura, p. N]» |
 
 ## API key de Gemini
 
@@ -43,7 +53,7 @@ No hay servidor propio: la página es estática. El PDF y los resultados quedan 
 | `js/pdf.js` | Lectura del PDF con pdf.js, miniaturas, recorte de páginas con pdf-lib |
 | `js/store.js` | Historial en IndexedDB |
 | `js/export.js` | Exportación a texto, Markdown, HTML y Word |
-| `lib/` | pdf.js 4.10 (Mozilla, Apache 2.0) y pdf-lib 1.17 (MIT), incluidas para que funcione sin conexión a CDNs |
+| `lib/` | pdf.js 4.10 (Mozilla, Apache 2.0), pdf-lib 1.17 (MIT) y KaTeX 0.19 (MIT), incluidas para que funcione sin conexión a CDNs |
 | `sw.js`, `manifest.webmanifest` | App instalable |
 
 Para probarla en la computadora: `python3 -m http.server` en la carpeta y abrir `http://localhost:8000`.

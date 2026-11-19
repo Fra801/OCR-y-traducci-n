@@ -1,17 +1,17 @@
-import { openPdf, analyze, renderPage } from "./pdf.js";
-import { planChunks, runChunk, mergedBlocks, tailBefore } from "./engine.js";
+import { openPdf, analyze, renderPage, addFlags } from "./pdf.js";
+import { planChunks, runChunk, mergedBlocks, tailBefore, needsVision } from "./engine.js";
 import { listModels, DEFAULT_MODEL, FALLBACK_MODELS } from "./gemini.js";
 import { saveDoc, getDoc, saveFile, getFile, listDocs, deleteDoc, fingerprint } from "./store.js";
 import { esc, blockHtml, toText, toMarkdown, toHtml, toWord, download } from "./export.js";
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.1.0";
 const $ = id => document.getElementById(id);
 
 /* ================= Ajustes ================= */
 const SKEY = "ocrt.settings";
 const S = Object.assign({
   key: "", model: DEFAULT_MODEL, models: [], mode: "auto", translate: false, targetLang: "español",
-  bilingual: true, ocrPages: 4, parallel: 2, fontScale: 1,
+  bilingual: true, ocrPages: 4, parallel: 2, fontScale: 1, figures: true, describe: false,
 }, JSON.parse(localStorage.getItem(SKEY) || "{}"));
 const saveS = () => localStorage.setItem(SKEY, JSON.stringify(S));
 
@@ -121,6 +121,7 @@ async function loadFile(file) {
     const p = await openPdf(b);
     if (prev) {
       bytes = b; pdf = p; doc = prev;
+      if (doc.pages.some(x => x.fig === undefined)) { t.textContent = "Buscando figuras y fórmulas"; await addFlags(p, doc.pages); saveDoc(doc); }
       if (!(await getFile(id).catch(() => null))) saveFile(id, b);
       toast("Ya lo habías abierto: se recuperó desde el historial.");
     } else {
@@ -150,6 +151,7 @@ async function openFromHistory(id) {
   doc = d; bytes = null; pdf = null;
   const b = await getFile(id).catch(() => null);
   if (b) { bytes = b; try { pdf = await openPdf(b); } catch { pdf = null; } }
+  if (pdf && doc.pages.some(x => x.fig === undefined)) { await addFlags(pdf, doc.pages); saveDoc(doc); }
   $("historyDlg").close();
   openWork();
 }
@@ -168,6 +170,9 @@ function openWork() {
   $("targetLang").value = o.targetLang || S.targetLang;
   $("bilingual").checked = o.bilingual ?? S.bilingual;
   $("glossary").value = o.glossary || "";
+  $("figures").checked = o.figures ?? S.figures;
+  $("describe").checked = o.describe ?? S.describe;
+  $("describeRow").hidden = !$("figures").checked;
   $("ocrPages").value = o.ocrPages || S.ocrPages;
   $("parallel").value = S.parallel;
   fillModels();
@@ -187,12 +192,17 @@ function openWork() {
 function renderAnalysis() {
   const t = doc.pages.filter(p => p.kind === "text").length;
   const s = doc.numPages - t;
+  const figs = doc.pages.filter(p => p.fig).length, math = doc.pages.filter(p => p.math).length;
   let txt;
-  if (!s) txt = `Las <b>${doc.numPages}</b> páginas tienen texto seleccionable: no hace falta OCR.`;
+  if (!s) txt = `Las <b>${doc.numPages}</b> páginas tienen texto seleccionable.`;
   else if (!t) txt = `Las <b>${doc.numPages}</b> páginas son imágenes escaneadas: van con OCR.`;
-  else txt = `<b>${t}</b> con texto seleccionable y <b>${s}</b> ${s === 1 ? "escaneada (va" : "escaneadas (van"} con OCR).`;
+  else txt = `<b>${t}</b> con texto seleccionable y <b>${s}</b> ${s === 1 ? "escaneada" : "escaneadas"}.`;
+  const extra = [];
+  if (figs) extra.push(`<b>${figs}</b> con figuras`);
+  if (math) extra.push(`<b>${math}</b> con fórmulas`);
+  if (extra.length) txt += ` Hay ${extra.join(" y ")}: esas también van con visión para recortar las figuras y escribir las fórmulas bien.`;
   $("analysis").innerHTML = txt;
-  $("modeHint").textContent = !s ? "Si el texto sale desordenado o con símbolos raros, probá «Todo con OCR»." : "";
+  $("modeHint").textContent = !s && !figs && !math ? "Si el texto sale desordenado o con símbolos raros, probá «Todo con OCR»." : "";
 }
 
 function chunkOfPage(n) { return doc.chunks.find(c => n >= c.from && n <= c.to); }
@@ -203,9 +213,11 @@ function renderMap() {
   const html = doc.pages.map(p => {
     const c = chunkOfPage(p.n);
     const st = c ? ({ done: "done", working: "working", error: "err" }[c.status] || "") : "";
-    const kind = mode === "ocr" ? "s" : mode === "text" ? "" : (p.kind === "scan" ? "s" : "");
+    const kind = mode === "ocr" ? "s" : mode === "text" ? "" : (needsVision(p, $("figures").checked) ? "s" : "");
     const out = p.n < from || p.n > to ? "out" : "";
-    return `<button class="pg-t ${kind} ${st} ${out}" data-n="${p.n}" title="Página ${p.n} · ${p.kind === "text" ? "texto" : "escaneada"}">${p.n}</button>`;
+    const what = [p.kind === "text" ? "texto" : "escaneada", p.fig && "figuras", p.math && "fórmulas"].filter(Boolean).join(", ");
+    const mark = p.math ? "∑" : p.fig ? "◩" : "";
+    return `<button class="pg-t ${kind} ${st} ${out}" data-n="${p.n}" title="Página ${p.n} · ${what}">${mark ? `<em>${mark}</em>` : ""}${p.n}</button>`;
   }).join("");
   $("pagemap").innerHTML = html;
 }
@@ -220,7 +232,7 @@ $("pagemap").addEventListener("click", async e => {
   if (!pdf) return;
   const p = doc.pages[n - 1];
   $("preview").hidden = false;
-  $("previewCap").textContent = `Página ${n} · ${p.kind === "text" ? "con texto (" + p.chars + " letras)" : "escaneada"}`;
+  $("previewCap").textContent = `Página ${n} · ${p.kind === "text" ? "con texto (" + p.chars + " letras)" : "escaneada"}${p.fig ? " · figuras" : ""}${p.math ? " · fórmulas" : ""}`;
   try { await renderPage(pdf, n, 300, $("previewCanvas")); } catch { $("preview").hidden = true; }
 });
 
@@ -231,6 +243,8 @@ $("modeSeg").addEventListener("click", e => { const b = e.target.closest("button
 $("translate").onchange = () => { $("transOpts").hidden = !$("translate").checked; S.translate = $("translate").checked; saveS(); updateRunBtn(); };
 $("targetLang").onchange = () => { S.targetLang = $("targetLang").value; saveS(); updateRunBtn(); };
 $("bilingual").onchange = () => { S.bilingual = $("bilingual").checked; saveS(); updateRunBtn(); };
+$("figures").onchange = () => { S.figures = $("figures").checked; $("describeRow").hidden = !S.figures; saveS(); renderMap(); updateRunBtn(); };
+$("describe").onchange = () => { S.describe = $("describe").checked; saveS(); updateRunBtn(); };
 $("glossary").oninput = debounce(updateRunBtn, 300);
 $("modelSel").onchange = () => { S.model = $("modelSel").value; saveS(); };
 $("ocrPages").onchange = () => { S.ocrPages = clamp(+$("ocrPages").value, 1, 15); $("ocrPages").value = S.ocrPages; saveS(); updateRunBtn(); };
@@ -251,9 +265,10 @@ function currentOptions() {
     translate: $("translate").checked, targetLang: $("targetLang").value,
     bilingual: $("bilingual").checked, glossary: $("glossary").value.trim(),
     ocrPages: clamp(+$("ocrPages").value, 1, 15),
+    figures: $("figures").checked, describe: $("figures").checked && $("describe").checked,
   };
 }
-const sameOptions = (a, b) => a && b && ["from", "to", "mode", "translate", "targetLang", "bilingual", "glossary", "ocrPages"].every(k => a[k] === b[k]);
+const sameOptions = (a, b) => a && b && ["from", "to", "mode", "translate", "targetLang", "bilingual", "glossary", "ocrPages", "figures", "describe"].every(k => a[k] === b[k]);
 
 function updateRunBtn() {
   if (!doc) return;
@@ -482,6 +497,8 @@ $("tocMenu").addEventListener("click", e => {
 function toggleMenu(id) { const m = $(id); const open = m.hidden; document.querySelectorAll(".menu").forEach(x => x.hidden = true); m.hidden = !open; }
 document.addEventListener("click", e => { if (!e.target.closest(".menu-wrap")) document.querySelectorAll(".menu").forEach(x => x.hidden = true); });
 $("reader").addEventListener("click", e => {
+  const img = e.target.closest(".b-figure img");
+  if (img) { $("lbImg").src = img.src; $("lbCap").textContent = img.closest("figure").querySelector(".fig-desc")?.textContent || ""; $("lightbox").showModal(); return; }
   const s = e.target.closest(".pgm span");
   if (s) $("pagemap").querySelector(`[data-n="${s.parentElement.dataset.page}"]`)?.click();
 });
@@ -499,7 +516,7 @@ function runSearch(jump = true) {
   if (q.length < 2) { $("sCount").textContent = ""; $("sPrev").hidden = $("sNext").hidden = true; return; }
   const norm = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const nq = norm(q);
-  const walker = document.createTreeWalker($("reader"), NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest(".pgm,.ph-chunk") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  const walker = document.createTreeWalker($("reader"), NodeFilter.SHOW_TEXT, { acceptNode: n => n.parentElement.closest(".pgm,.ph-chunk,.katex,math,.b-math") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
@@ -572,7 +589,7 @@ $("exportMenu").addEventListener("click", e => {
     case "txt": return download(toText(blocks), meta.file + ".txt", "text/plain;charset=utf-8");
     case "md": return download(toMarkdown(blocks, meta), meta.file + ".md", "text/markdown;charset=utf-8");
     case "html": return download(toHtml(blocks, meta), meta.file + ".html", "text/html;charset=utf-8");
-    case "doc": return download("﻿" + toWord(blocks, meta), meta.file + ".doc", "application/msword");
+    case "doc": return download(toWord(blocks, meta), meta.file + ".doc", "application/msword");
     case "print": return window.print();
   }
 });
@@ -612,6 +629,7 @@ $("historyList").addEventListener("click", onRecentClick);
 document.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.classList?.contains("recent")) e.target.click(); });
 $("historyBtn").onclick = async () => { await renderRecents(); $("historyDlg").showModal(); };
 $("historyClose").onclick = () => $("historyDlg").close();
+$("lightbox").addEventListener("click", () => $("lightbox").close());
 [$("settingsDlg"), $("historyDlg")].forEach(d => d.addEventListener("click", e => { if (e.target === d) d.close(); }));
 
 window.addEventListener("beforeunload", e => { if (running) { e.preventDefault(); e.returnValue = ""; } });

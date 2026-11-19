@@ -1,8 +1,8 @@
 // Planificación por tramos de páginas, prompts y procesamiento de cada tramo con Gemini.
 import { generate, responseText, parseJson, GeminiError } from "./gemini.js";
-import { slicePdf, bytesToBase64, pageJpegBase64 } from "./pdf.js";
+import { slicePdf, bytesToBase64, pageCanvas, canvasJpegBase64, cropFigure } from "./pdf.js";
 
-export const BLOCK_TYPES = ["h1", "h2", "h3", "p", "list_item", "quote", "table", "caption", "footnote"];
+export const BLOCK_TYPES = ["h1", "h2", "h3", "p", "list_item", "quote", "math", "table", "figure", "caption", "footnote"];
 
 // Límites por pedido: chicos para que la respuesta nunca se corte y el progreso se vea seguido.
 export const LIMITS = { textChars: 12000, textPages: 20, inlineBytes: 14 * 1024 * 1024 };
@@ -10,14 +10,18 @@ export const LIMITS = { textChars: 12000, textPages: 20, inlineBytes: 14 * 1024 
 /**
  * Divide el rango elegido en tramos. Páginas consecutivas del mismo tipo van juntas.
  * mode: "auto" | "ocr" | "text"
+ * En automático van con visión las páginas escaneadas, las que tienen fórmulas y, si se pidió
+ * recortar figuras, las que tienen imágenes.
  */
-export function planChunks(pages, { from, to, mode, ocrPages }) {
+export const needsVision = (p, figures) => p.kind !== "text" || !!p.math || (figures && !!p.fig);
+
+export function planChunks(pages, { from, to, mode, ocrPages, figures }) {
   const chunks = [];
   let cur = null;
   const flush = () => { if (cur) chunks.push(cur); cur = null; };
   for (const p of pages) {
     if (p.n < from || p.n > to) continue;
-    const kind = mode === "ocr" ? "ocr" : mode === "text" ? "text" : (p.kind === "text" ? "text" : "ocr");
+    const kind = mode === "ocr" ? "ocr" : mode === "text" ? "text" : (needsVision(p, figures) ? "ocr" : "text");
     if (kind === "text" && !p.text) { // "solo texto" en una página vacía: nada que mandar
       flush();
       chunks.push({ from: p.n, to: p.n, kind: "empty" });
@@ -49,9 +53,10 @@ const SCHEMA = {
           text: { type: "STRING" },
           original: { type: "STRING" },
           rows: { type: "ARRAY", items: { type: "ARRAY", items: { type: "STRING" } } },
+          box: { type: "ARRAY", items: { type: "INTEGER" } },
         },
         required: ["type", "text"],
-        propertyOrdering: ["type", "page", "text", "original", "rows"],
+        propertyOrdering: ["type", "page", "box", "text", "original", "rows"],
       },
     },
   },
@@ -86,10 +91,23 @@ const STRUCTURE_RULES = `ESTRUCTURA (campo "blocks", en el orden del documento, 
 - "table": una tabla. En "rows" va cada fila como lista de celdas (la primera fila es el encabezado si lo hay). En "text", el título de la tabla o "".
 - "caption": epígrafe de figura o imagen. Si hay una figura sin texto, no la describas.
 - "footnote": nota al pie o al final, con su número o símbolo al comienzo.
+- "math": ecuación o fórmula en renglón aparte. En "text" va SOLO el código LaTeX, sin $ ni \\[ \\] alrededor (ej.: \\frac{a}{b} = \\sqrt{x^2+1}). Si está numerada, agregá \\tag{n} con su número. Varias líneas alineadas: usá \\begin{aligned} … \\end{aligned}.
+- Fórmulas, variables, símbolos y unidades dentro de un párrafo, lista, tabla o título: escribilos en LaTeX entre \\( y \\) (ej.: la velocidad \\(v_0\\) vale \\(850\\,\\mathrm{m/s}\\)). Nunca uses $ para matemática. El LaTeX tiene que ser válido para KaTeX.
+- Lo que está dentro de una fórmula no se traduce, salvo palabras en \\text{…}.
 - "page": número de página del documento original donde empieza el bloque (usá la numeración que te indico, no la impresa en la hoja).
 - Omití encabezados y pies de página que se repiten en cada hoja (título del libro corrido, número de folio), marcas de agua y guiones de corte de palabra.
 - Conservá negritas como **texto** y cursivas como *texto* cuando estén en el original. No uses otro formato ni markdown.
 - No resumas ni inventes: todo el contenido, completo.`;
+
+function figureRules(o) {
+  if (!o.figures) return `\n- Figuras, fotos, gráficos y diagramas: no los describas; transcribí solo su epígrafe ("caption") si tiene.`;
+  return `
+- "figure": un bloque por cada figura, foto, gráfico, diagrama, mapa o ilustración (no por logos ni adornos), en el lugar donde aparece. En "box" va su recuadro en la imagen de esa página como [ymin, xmin, ymax, xmax] con valores de 0 a 1000, ajustado a la figura completa (incluí sus rótulos y ejes, pero no el epígrafe). ${o.describe
+    ? `En "text" va una descripción breve y objetiva de lo que muestra (1 o 2 oraciones${o.translate ? `, en ${o.targetLang || "español"}` : ", en el idioma del documento"}), sin inventar datos que no se ven.`
+    : `"text": "".`}
+- El epígrafe de la figura va aparte, como "caption", inmediatamente después del bloque "figure".
+- No transcribas como párrafos los textos que están DENTRO de una figura (rótulos de un gráfico, nombres en un diagrama): ya quedan en la imagen recortada.`;
+}
 
 function buildPrompt(chunk, o, ctx) {
   const range = chunk.from === chunk.to ? `la página ${chunk.from}` : `las páginas ${chunk.from} a ${chunk.to}`;
@@ -101,7 +119,7 @@ function buildPrompt(chunk, o, ctx) {
 
 ${translationRules(o)}
 
-${STRUCTURE_RULES}${cont}
+${STRUCTURE_RULES}${chunk.kind === "ocr" ? figureRules(o) : `\n- No uses bloques "figure": acá solo hay texto.`}${cont}
 
 Devolvé únicamente el JSON pedido.`;
 }
@@ -112,34 +130,52 @@ async function buildParts(chunk, o, ctx) {
     const body = ctx.pages.filter(p => p.n >= chunk.from && p.n <= chunk.to).map(p => `[[PÁGINA ${p.n}]]\n${p.text}`).join("\n\n");
     return [{ text: prompt + `\n\nTEXTO:\n"""\n${body}\n"""` }];
   }
-  // OCR: intento recortar el PDF (más liviano y fiel); si no se puede o pesa mucho, mando imágenes.
+  // Con figuras: mando la imagen de cada página (las coordenadas de los recuadros se refieren a
+  // esa imagen y después recorto del mismo canvas).
+  if (o.figures && ctx.pdf) return imageParts(chunk, prompt, ctx);
+  // Sin figuras: intento recortar el PDF (más liviano y fiel); si no se puede o pesa mucho, imágenes.
   let pdfPart = null;
   try {
     const sliced = await slicePdf(ctx.bytes, chunk.from, chunk.to);
     if (sliced.byteLength <= LIMITS.inlineBytes) pdfPart = { inline_data: { mime_type: "application/pdf", data: await bytesToBase64(sliced) } };
   } catch { /* PDF protegido o raro: imágenes */ }
   if (pdfPart) return [pdfPart, { text: prompt }];
+  return imageParts(chunk, prompt, ctx);
+}
+
+async function imageParts(chunk, prompt, ctx) {
   const parts = [];
+  ctx.canvases = new Map();
   for (let n = chunk.from; n <= chunk.to; n++) {
-    parts.push({ text: `[[PÁGINA ${n}]]` });
-    parts.push({ inline_data: { mime_type: "image/jpeg", data: await pageJpegBase64(ctx.pdf, n) } });
+    const canvas = await pageCanvas(ctx.pdf, n, 2000);
+    ctx.canvases.set(n, canvas);
+    parts.push({ text: `[[PÁGINA ${n}]] (imagen de la página ${n})` });
+    parts.push({ inline_data: { mime_type: "image/jpeg", data: canvasJpegBase64(canvas) } });
   }
   parts.push({ text: prompt });
   return parts;
 }
 
-function cleanBlocks(raw, chunk) {
+function cleanBlocks(raw, chunk, ctx) {
   const list = Array.isArray(raw) ? raw : raw?.blocks || [];
   return list
-    .filter(b => b && (b.text || (b.rows && b.rows.length)))
+    .filter(b => b && (b.text || (b.rows && b.rows.length) || b.type === "figure"))
     .map(b => {
       const out = { type: BLOCK_TYPES.includes(b.type) ? b.type : "p", text: String(b.text || "").trim() };
       const pg = parseInt(b.page, 10);
       out.page = pg >= chunk.from && pg <= chunk.to ? pg : chunk.from;
       if (b.original && String(b.original).trim() && String(b.original).trim() !== out.text) out.original = String(b.original).trim();
       if (out.type === "table") out.rows = (b.rows || []).map(r => (Array.isArray(r) ? r : [r]).map(c => String(c ?? "")));
+      if (out.type === "math") out.text = out.text.replace(/^\s*(\$\$?|\\\[|\\\()\s*|\s*(\$\$?|\\\]|\\\))\s*$/g, "");
+      if (out.type === "figure") {
+        const canvas = ctx.canvases?.get(out.page);
+        out.img = canvas ? cropFigure(canvas, b.box) : null;
+        delete out.original;
+        if (!out.img) return out.text ? { ...out, type: "caption", text: "[Figura] " + out.text } : null;
+      }
       return out;
-    });
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -162,7 +198,7 @@ export async function runChunk(chunk, o, ctx) {
       model,
       detectedLanguage: parsed.detectedLanguage || "",
       translated: !!parsed.translated,
-      blocks: cleanBlocks(parsed, chunk),
+      blocks: cleanBlocks(parsed, chunk, ctx),
       tokens: (usage.promptTokenCount || 0) + (usage.candidatesTokenCount || 0),
       error: "",
     }];

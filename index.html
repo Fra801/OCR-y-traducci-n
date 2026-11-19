@@ -16,6 +16,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="lib/katex/katex.min.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -74,7 +75,7 @@
       <div class="panel">
         <div class="ph">
           <h3>Mapa de páginas</h3>
-          <div class="legend"><span class="lg t">texto</span><span class="lg s">escaneada</span></div>
+          <div class="legend"><span class="lg t">texto</span><span class="lg s">con visión</span></div>
         </div>
         <div class="analysis" id="analysis"></div>
         <div class="pagemap" id="pagemap"></div>
@@ -106,6 +107,15 @@
           </div>
           <p class="hint" id="modeHint"></p>
         </div>
+
+        <div class="field toggle-row">
+          <div>
+            <span class="lbl">Recortar figuras</span>
+            <p class="hint">Fotos, gráficos y diagramas aparecen en el texto como imágenes.</p>
+          </div>
+          <label class="switch"><input type="checkbox" id="figures" checked><span></span></label>
+        </div>
+        <label class="check" id="describeRow"><input type="checkbox" id="describe"> Agregar una breve descripción de cada figura (generada por Gemini)</label>
 
         <div class="field toggle-row">
           <div>
@@ -226,6 +236,8 @@
     <div class="recent-list" id="historyList"></div>
   </div>
 </dialog>
+
+<dialog class="lightbox" id="lightbox"><img id="lbImg" alt=""><div id="lbCap"></div></dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
