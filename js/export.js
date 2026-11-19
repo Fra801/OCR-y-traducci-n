@@ -97,7 +97,8 @@ export function blockHtml(b, { bilingual = false, math = "html", imgSrc = null }
   return inner.replace("<" + tag + " ", `<${tag} data-page="${b.page}" `);
 }
 
-const DOC_CSS = `body{font-family:Georgia,'Times New Roman',serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1b1b1f;line-height:1.7;font-size:17px}
+const DOC_CSS = `body{font-family:Georgia,'Times New Roman',serif;max-width:720px;margin:40px auto;padding:0 20px;color:#1b1b1f;line-height:1.15;font-size:17px}
+p{margin:0 0 .8em}
 h1,h2,h3{font-family:Helvetica,Arial,sans-serif;line-height:1.25}h1{font-size:1.8em;margin:1.6em 0 .5em}h2{font-size:1.35em;margin:1.4em 0 .4em}h3{font-size:1.1em}
 blockquote{border-left:3px solid #3247ff;margin:1em 0;padding:.2em 1em;color:#333;font-style:italic}li{margin:.3em 0 .3em 1.2em}
 figcaption{font-size:.9em;color:#555;font-style:italic;text-align:center}aside{font-size:.85em;color:#555;border-top:1px solid #ddd;padding-top:.4em}
@@ -140,7 +141,7 @@ export function toWord(blocks, meta) {
     },
   }).replace(/<figure class="b b-figure">/g, "<p align=\"center\">").replace(/<\/figure>/g, "</p>")
     .replace(/<div class="b b-math">([\s\S]*?)<\/div>/g, '<p align="center" class="texmath">$1</p>');
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${esc(meta.title)}</title><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]--><style>${DOC_CSS} img{max-width:16cm}</style></head><body><div class="meta">${esc(meta.note)}</div>${body}</body></html>`;
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${esc(meta.title)}</title><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]--><style>${DOC_CSS} img{max-width:16cm} p,li{line-height:115%;mso-line-height-rule:auto} p{margin:0 0 10pt}</style></head><body><div class="meta">${esc(meta.note)}</div>${body}</body></html>`;
   const B = "----=_ocr_traduccion_" + Date.now();
   const b64 = str => { const u = new TextEncoder().encode(str); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
   const wrap = s => s.replace(/.{1,76}/g, "$&\r\n");

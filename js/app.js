@@ -4,7 +4,7 @@ import { listModels, DEFAULT_MODEL, FALLBACK_MODELS } from "./gemini.js";
 import { saveDoc, getDoc, saveFile, getFile, listDocs, deleteDoc, fingerprint } from "./store.js";
 import { esc, blockHtml, toText, toMarkdown, toHtml, toWord, download } from "./export.js";
 
-export const APP_VERSION = "1.1.0";
+export const APP_VERSION = "1.1.1";
 const $ = id => document.getElementById(id);
 
 /* ================= Ajustes ================= */
