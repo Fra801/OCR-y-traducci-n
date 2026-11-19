@@ -1,6 +1,7 @@
 // Planificación por tramos de páginas, prompts y procesamiento de cada tramo con Gemini.
 import { generate, responseText, parseJson, GeminiError } from "./gemini.js";
 import { slicePdf, bytesToBase64, pageCanvas, canvasJpegBase64, cropFigure } from "./pdf.js";
+import { structure } from "./layout.js";
 
 export const BLOCK_TYPES = ["h1", "h2", "h3", "p", "list_item", "quote", "math", "table", "figure", "caption", "footnote"];
 
@@ -124,7 +125,13 @@ ${STRUCTURE_RULES}${chunk.kind === "ocr" ? figureRules(o) : `\n- No uses bloques
 Devolvé únicamente el JSON pedido.`;
 }
 
+const pagesOf = (c, ctx) => ctx.pages.filter(p => p.n >= c.from && p.n <= c.to);
+
 async function buildParts(chunk, o, ctx) {
+  // Imágenes de página solo donde puede haber figuras para recortar (escaneadas o con imágenes).
+  // Las páginas con fórmulas sin figuras van como PDF recortado: pesa mucho menos y se lee igual.
+  const wantImg = chunk.kind === "ocr" && o.figures && !!ctx.pdf && pagesOf(chunk, ctx).some(p => p.kind !== "text" || p.fig);
+  if (chunk.kind === "ocr") o = { ...o, figures: wantImg };
   const prompt = buildPrompt(chunk, o, ctx);
   if (chunk.kind === "text") {
     const body = ctx.pages.filter(p => p.n >= chunk.from && p.n <= chunk.to).map(p => `[[PÁGINA ${p.n}]]\n${p.text}`).join("\n\n");
@@ -132,7 +139,7 @@ async function buildParts(chunk, o, ctx) {
   }
   // Con figuras: mando la imagen de cada página (las coordenadas de los recuadros se refieren a
   // esa imagen y después recorto del mismo canvas).
-  if (o.figures && ctx.pdf) return imageParts(chunk, prompt, ctx);
+  if (wantImg) return imageParts(chunk, prompt, ctx);
   // Sin figuras: intento recortar el PDF (más liviano y fiel); si no se puede o pesa mucho, imágenes.
   let pdfPart = null;
   try {
@@ -147,10 +154,10 @@ async function imageParts(chunk, prompt, ctx) {
   const parts = [];
   ctx.canvases = new Map();
   for (let n = chunk.from; n <= chunk.to; n++) {
-    const canvas = await pageCanvas(ctx.pdf, n, 2000);
+    const canvas = await pageCanvas(ctx.pdf, n, 1600);
     ctx.canvases.set(n, canvas);
     parts.push({ text: `[[PÁGINA ${n}]] (imagen de la página ${n})` });
-    parts.push({ inline_data: { mime_type: "image/jpeg", data: canvasJpegBase64(canvas) } });
+    parts.push({ inline_data: { mime_type: "image/jpeg", data: canvasJpegBase64(canvas, 0.82) } });
   }
   parts.push({ text: prompt });
   return parts;
@@ -182,17 +189,81 @@ function cleanBlocks(raw, chunk, ctx) {
  * Procesa un tramo. Si la respuesta se corta o no es JSON válido, lo divide en dos y
  * procesa cada mitad. Devuelve una lista de tramos ya resueltos (uno o varios).
  */
+const TSCHEMA = {
+  type: "OBJECT",
+  properties: {
+    detectedLanguage: { type: "STRING" },
+    translated: { type: "BOOLEAN" },
+    items: { type: "ARRAY", items: { type: "STRING" } },
+  },
+  required: ["detectedLanguage", "translated", "items"],
+  propertyOrdering: ["detectedLanguage", "translated", "items"],
+};
+const TYPE_NAME = { h1: "título", h2: "sección", h3: "subtítulo", p: "párrafo", list_item: "ítem de lista", footnote: "nota al pie", caption: "epígrafe", quote: "cita" };
+
+/**
+ * Página con texto, camino rápido: la estructura se arma en la app (sin IA) y, si hay que
+ * traducir, a Gemini solo se le mandan los textos para traducir. El original no se le pide
+ * de vuelta: ya lo tenemos.
+ */
+async function runLocal(chunk, o, ctx, t0) {
+  const local = structure(pagesOf(chunk, ctx), o.stats);
+  const done = extra => [{ ...chunk, status: "done", error: "", detectedLanguage: "", translated: false, tokens: 0, model: "local", blocks: local, ...extra, ms: Math.round(performance.now() - t0) }];
+  if (!o.translate || !local.length) return done({});
+  const lang = o.targetLang || "español";
+  const input = local.map(b => ({ tipo: TYPE_NAME[b.type] || "párrafo", texto: b.text }));
+  const prompt = `Sos traductor profesional. Te paso, en orden, los ${local.length} fragmentos de un tramo de un documento (llamado «${o.fileName}»): títulos, párrafos, ítems de lista, notas y epígrafes. El "tipo" es solo contexto.
+
+- Detectá el idioma original y escribí su nombre en español en "detectedLanguage" (ej.: "Inglés").
+- Si NO está en ${lang}, traducí cada fragmento al ${lang} de la forma más fiel, precisa y literal posible: el significado exacto, el tono, el registro (formal, técnico, poético, coloquial) y el orden de las ideas. No resumas, no parafrasees, no omitas ni agregues nada. Nombres propios y títulos de obras citadas quedan como están. "translated": true.
+- Si ya está en ${lang}, devolvé cada fragmento exactamente igual y "translated": false.
+- Algunos fragmentos pueden venir cortados (siguen en el próximo): traducilos igual, sin completarlos.
+- "items": EXACTAMENTE ${local.length} textos, en el mismo orden, uno por fragmento de entrada. Nunca juntes ni dividas fragmentos.
+- Solo texto plano, sin markdown.${o.glossary ? `
+- Respetá este glosario y estas indicaciones del usuario:
+${o.glossary}` : ""}
+
+FRAGMENTOS:
+${JSON.stringify(input)}`;
+  const body = { contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema: TSCHEMA } };
+  const { data, model } = await generate({ key: o.key, models: o.textModels || o.models, body, signal: ctx.signal, onWait: ctx.onWait });
+  const parsed = parseJson(responseText(data));
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+  if (items.length !== local.length) {
+    if (chunk.to > chunk.from) throw new GeminiError("La traducción no devolvió todos los fragmentos.", { kind: "parse" });
+    return null; // una sola página: se arma con Gemini (camino completo)
+  }
+  const usage = data.usageMetadata || {};
+  const tr = !!parsed.translated;
+  return done({
+    model, detectedLanguage: parsed.detectedLanguage || "", translated: tr,
+    tokens: (usage.promptTokenCount || 0) + (usage.candidatesTokenCount || 0),
+    blocks: local.map((b, i) => {
+      const text = tr ? String(items[i] || "").trim() || b.text : b.text;
+      return tr && o.bilingual && text !== b.text ? { ...b, text, original: b.text } : { ...b, text };
+    }),
+  });
+}
+
 export async function runChunk(chunk, o, ctx) {
+  const t0 = performance.now();
   try {
+    if (chunk.kind === "text" && o.fast && o.stats && pagesOf(chunk, ctx).every(p => p.lines?.length)) {
+      const r = await runLocal(chunk, o, ctx, t0);
+      if (r) return r;
+      o = { ...o, fast: false };
+    }
     const parts = await buildParts(chunk, o, ctx);
     const body = {
       contents: [{ role: "user", parts }],
       generationConfig: { temperature: 0, responseMimeType: "application/json", responseSchema: SCHEMA },
     };
-    const { data, model } = await generate({ key: o.key, models: o.models, body, signal: ctx.signal, onWait: ctx.onWait });
+    const models = chunk.kind === "text" ? (o.textModels || o.models) : o.models;
+    const { data, model } = await generate({ key: o.key, models, body, signal: ctx.signal, onWait: ctx.onWait });
     const parsed = parseJson(responseText(data));
     const usage = data.usageMetadata || {};
     return [{
+      ms: Math.round(performance.now() - t0),
       ...chunk,
       status: "done",
       model,

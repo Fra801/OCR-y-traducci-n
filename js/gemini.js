@@ -71,33 +71,57 @@ async function rawCall(model, key, body, signal) {
   return data;
 }
 
+/*
+ * Razonamiento mínimo: para transcribir y traducir no hace falta que el modelo "piense", y eso
+ * es lo que más demora cada respuesta. Cada familia de modelos lo pide distinto, así que se prueba
+ * en este orden y se recuerda qué funcionó con cada modelo.
+ */
+const THINK = [{ thinkingLevel: "minimal" }, { thinkingBudget: 0 }, { thinkingLevel: "low" }, { thinkingBudget: 128 }, null];
+const TKEY = "ocrt.think";
+const thinkIdx = JSON.parse(localStorage.getItem(TKEY) || "{}");
+const saveThink = () => { try { localStorage.setItem(TKEY, JSON.stringify(thinkIdx)); } catch { /* sin almacenamiento */ } };
+
+/** Pedido a un modelo, ajustando el razonamiento y el esquema si el modelo los rechaza. */
+async function callModel(model, key, body, signal) {
+  let i = thinkIdx[model] ?? 0;
+  let noSchema = false;
+  for (;;) {
+    const req = structuredClone(body);
+    if (THINK[i]) req.generationConfig.thinkingConfig = THINK[i];
+    if (noSchema) delete req.generationConfig.responseSchema;
+    try {
+      const data = await rawCall(model, key, req, signal);
+      if (thinkIdx[model] !== i) { thinkIdx[model] = i; saveThink(); }
+      return data;
+    } catch (e) {
+      if (e.kind !== "badrequest") throw e;
+      if (/think|budget|reasoning/i.test(e.message) && i < THINK.length - 1) { i++; continue; }
+      // Algunos modelos no aceptan el esquema JSON estricto: sin él, el prompt igual pide el JSON.
+      if (!noSchema && body.generationConfig?.responseSchema) { noSchema = true; continue; }
+      throw e;
+    }
+  }
+}
+
 /**
  * Llama a generateContent probando cada modelo de la lista, con reintentos y backoff
- * ante saturación. Devuelve { data, model }.
+ * ante saturación. Devuelve { data, model }. onWait se llama al tener que esperar
+ * (sirve para bajar la cantidad de pedidos en paralelo).
  */
 export async function generate({ key, models, body, signal, onWait }) {
   let last = null;
   const tried = [];
   for (const model of models) {
     tried.push(model);
-    let reqBody = body;
     for (let attempt = 1; attempt <= 4; attempt++) {
       try {
-        const data = await rawCall(model, key, reqBody, signal);
+        const data = await callModel(model, key, body, signal);
         return { data, model };
       } catch (e) {
         last = e;
         if (e.kind === "aborted" || e.kind === "auth") throw e;
         if (e.kind === "notfound") break; // ese modelo no existe para esta key: siguiente
-        if (e.kind === "badrequest") {
-          // Algunos modelos no aceptan el esquema JSON estricto: reintentar sin él una vez.
-          if (reqBody.generationConfig?.responseSchema) {
-            reqBody = structuredClone(reqBody);
-            delete reqBody.generationConfig.responseSchema;
-            continue;
-          }
-          throw e;
-        }
+        if (e.kind === "badrequest") throw e;
         if (e.kind === "overloaded" && attempt < 4) {
           const ms = backoff(attempt, e.retryAfterMs);
           onWait?.({ model, ms, attempt });

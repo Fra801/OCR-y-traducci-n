@@ -1,19 +1,22 @@
-import { openPdf, analyze, renderPage, addFlags } from "./pdf.js";
+import { openPdf, analyze, renderPage, addFlags, needsUpgrade } from "./pdf.js";
+import { docStats } from "./layout.js";
 import { planChunks, runChunk, mergedBlocks, tailBefore, needsVision } from "./engine.js";
 import { listModels, DEFAULT_MODEL, FALLBACK_MODELS } from "./gemini.js";
 import { saveDoc, getDoc, saveFile, getFile, listDocs, deleteDoc, fingerprint } from "./store.js";
 import { esc, blockHtml, toText, toMarkdown, toHtml, toWord, download } from "./export.js";
 
-export const APP_VERSION = "1.1.1";
+export const APP_VERSION = "1.2.0";
 const $ = id => document.getElementById(id);
 
 /* ================= Ajustes ================= */
 const SKEY = "ocrt.settings";
 const S = Object.assign({
   key: "", model: DEFAULT_MODEL, models: [], mode: "auto", translate: false, targetLang: "español",
-  bilingual: true, ocrPages: 4, parallel: 2, fontScale: 1, figures: true, describe: false,
+  bilingual: true, ocrPages: 4, parallel: 6, fontScale: 1, figures: true, describe: false, textMode: "fast",
 }, JSON.parse(localStorage.getItem(SKEY) || "{}"));
 const saveS = () => localStorage.setItem(SKEY, JSON.stringify(S));
+// Ajustes guardados por versiones anteriores: el máximo en paralelo pasó de 2 fijo a 6 automático.
+if ((S.v || 1) < 2) { if (S.parallel <= 2) S.parallel = 6; S.v = 2; saveS(); }
 
 /* ================= Estado ================= */
 let doc = null;      // documento actual (se guarda en IndexedDB)
@@ -121,7 +124,7 @@ async function loadFile(file) {
     const p = await openPdf(b);
     if (prev) {
       bytes = b; pdf = p; doc = prev;
-      if (doc.pages.some(x => x.fig === undefined)) { t.textContent = "Buscando figuras y fórmulas"; await addFlags(p, doc.pages); saveDoc(doc); }
+      if (needsUpgrade(doc.pages)) { t.textContent = "Actualizando el análisis de páginas"; await addFlags(p, doc.pages); saveDoc(doc); }
       if (!(await getFile(id).catch(() => null))) saveFile(id, b);
       toast("Ya lo habías abierto: se recuperó desde el historial.");
     } else {
@@ -151,7 +154,7 @@ async function openFromHistory(id) {
   doc = d; bytes = null; pdf = null;
   const b = await getFile(id).catch(() => null);
   if (b) { bytes = b; try { pdf = await openPdf(b); } catch { pdf = null; } }
-  if (pdf && doc.pages.some(x => x.fig === undefined)) { await addFlags(pdf, doc.pages); saveDoc(doc); }
+  if (pdf && needsUpgrade(doc.pages)) { await addFlags(pdf, doc.pages); saveDoc(doc); }
   $("historyDlg").close();
   openWork();
 }
@@ -175,6 +178,8 @@ function openWork() {
   $("describeRow").hidden = !$("figures").checked;
   $("ocrPages").value = o.ocrPages || S.ocrPages;
   $("parallel").value = S.parallel;
+  setSeg("textModeSeg", o.fast === false ? "ai" : o.fast === true ? "fast" : S.textMode);
+  renderTimings();
   fillModels();
   $("transOpts").hidden = !$("translate").checked;
   $("preview").hidden = true;
@@ -248,7 +253,8 @@ $("describe").onchange = () => { S.describe = $("describe").checked; saveS(); up
 $("glossary").oninput = debounce(updateRunBtn, 300);
 $("modelSel").onchange = () => { S.model = $("modelSel").value; saveS(); };
 $("ocrPages").onchange = () => { S.ocrPages = clamp(+$("ocrPages").value, 1, 15); $("ocrPages").value = S.ocrPages; saveS(); updateRunBtn(); };
-$("parallel").onchange = () => { S.parallel = clamp(+$("parallel").value, 1, 6); $("parallel").value = S.parallel; saveS(); };
+$("parallel").onchange = () => { S.parallel = clamp(+$("parallel").value, 1, 10); $("parallel").value = S.parallel; saveS(); };
+$("textModeSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; setSeg("textModeSeg", b.dataset.v); S.textMode = b.dataset.v; saveS(); updateRunBtn(); });
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v || a));
 function fixRange() {
   let f = clamp(+$("fromPage").value, 1, doc.numPages), t = clamp(+$("toPage").value, 1, doc.numPages);
@@ -266,9 +272,10 @@ function currentOptions() {
     bilingual: $("bilingual").checked, glossary: $("glossary").value.trim(),
     ocrPages: clamp(+$("ocrPages").value, 1, 15),
     figures: $("figures").checked, describe: $("figures").checked && $("describe").checked,
+    fast: getSeg("textModeSeg") !== "ai",
   };
 }
-const sameOptions = (a, b) => a && b && ["from", "to", "mode", "translate", "targetLang", "bilingual", "glossary", "ocrPages", "figures", "describe"].every(k => a[k] === b[k]);
+const sameOptions = (a, b) => a && b && ["from", "to", "mode", "translate", "targetLang", "bilingual", "glossary", "ocrPages", "figures", "describe", "fast"].every(k => a[k] === b[k]);
 
 function updateRunBtn() {
   if (!doc) return;
@@ -276,7 +283,8 @@ function updateRunBtn() {
   const o = currentOptions();
   const pendingSame = sameOptions(o, doc.options) && doc.chunks.some(c => c.status !== "done");
   const doneSame = sameOptions(o, doc.options) && doc.chunks.length && doc.chunks.every(c => c.status === "done");
-  const plan = planChunks(doc.pages, o).filter(c => c.kind !== "empty");
+  // Pedidos a Gemini: los tramos de texto sin traducir, en modo rápido, se arman en la app.
+  const plan = planChunks(doc.pages, o).filter(c => c.kind === "ocr" || (c.kind === "text" && (!o.fast || o.translate)));
   const pages = o.to - o.from + 1;
   btn.disabled = !!running;
   if (running) {
@@ -285,13 +293,15 @@ function updateRunBtn() {
     const left = doc.chunks.filter(c => c.status !== "done");
     btn.innerHTML = `Continuar <small>· faltan ${plural(left.length, "tramo", "tramos")}</small>`;
   } else if (doneSame) {
-    btn.innerHTML = `Volver a procesar <small>· ${plural(plan.length, "pedido", "pedidos")}</small>`;
+    btn.innerHTML = `Volver a procesar <small>· ${reqs(plan.length)}</small>`;
   } else {
     const verb = o.translate ? "Procesar y traducir" : "Procesar";
-    btn.innerHTML = `${verb} ${plural(pages, "página", "páginas")} <small>· ${plural(plan.length, "pedido", "pedidos")}</small>`;
+    btn.innerHTML = `${verb} ${plural(pages, "página", "páginas")} <small>· ${reqs(plan.length)}</small>`;
   }
   btn.dataset.state = pendingSame ? "resume" : doneSame ? "redo" : "new";
 }
+
+const reqs = n => n ? plural(n, "pedido a Gemini", "pedidos a Gemini") : "sin usar Gemini";
 
 /* ================= Procesamiento ================= */
 $("runBtn").onclick = () => start();
@@ -313,7 +323,7 @@ async function start() {
 
   const ctrl = new AbortController();
   const todo = doc.chunks.filter(c => c.status !== "done").map(c => c.id);
-  running = { ctrl, done: 0, total: todo.length };
+  running = { ctrl, done: 0, total: todo.length, t0: performance.now(), limit: Math.min(2, S.parallel), active: 0, streak: 0 };
   doc.chunks.forEach(c => { if (c.status === "error") { c.status = "pending"; c.error = ""; } });
   $("errBox").hidden = true;
   $("runRow").hidden = false;
@@ -323,47 +333,74 @@ async function start() {
   progress();
 
   const models = [S.model, ...FALLBACK_MODELS.filter(m => m !== S.model)];
-  const opts = { ...o, key: S.key, models, fileName: doc.name };
+  // Con el modelo recomendado, el texto plano (estructurar o traducir) va con Flash-Lite, que es
+  // más rápido; las páginas con visión siguen con Flash. Si se eligió otro modelo, se usa para todo.
+  const textModels = S.model === DEFAULT_MODEL ? ["gemini-flash-lite-latest", ...models.filter(m => m !== "gemini-flash-lite-latest")] : models;
+  const opts = { ...o, key: S.key, models, textModels, fileName: doc.name, stats: docStats(doc.pages) };
   let fatal = null;
   const queue = [...todo];
 
-  async function worker() {
-    while (queue.length && !ctrl.signal.aborted && !fatal) {
-      const id = queue.shift();
-      const idx = doc.chunks.findIndex(c => c.id === id);
-      if (idx < 0) continue;
-      const chunk = doc.chunks[idx];
-      chunk.status = "working";
-      renderMap(); renderReaderSoon();
-      try {
-        const ctx = {
-          pages: doc.pages, bytes, pdf, signal: ctrl.signal,
-          prevTail: chunk.kind === "text" ? tailBefore(doc.pages, chunk.from) : "",
-          onWait: ({ model, ms }) => { const w = $("waitNote"); w.hidden = false; w.textContent = `Gemini está con mucha demanda (${model}). Reintento en ${Math.round(ms / 1000)} s…`; },
-        };
-        const res = await runChunk(chunk, opts, ctx);
-        const at = doc.chunks.findIndex(c => c.id === id);
-        doc.chunks.splice(at, 1, ...res);
-        $("waitNote").hidden = true;
-      } catch (e) {
-        if (e.kind === "auth") { fatal = e; chunk.status = "pending"; break; }
-        chunk.status = "error";
-        chunk.error = e.message || String(e);
+  // Pedidos en paralelo que se ajustan solos: arranca con 2, suma uno cada dos respuestas sin
+  // demoras (hasta el máximo de Avanzado) y baja a la mitad cuando Gemini pide esperar.
+  const onWait = ({ model, ms }) => {
+    running.limit = Math.max(1, Math.floor(running.limit / 2));
+    running.streak = 0;
+    const w = $("waitNote"); w.hidden = false;
+    w.textContent = `Gemini está con mucha demanda (${model}). Reintento en ${Math.round(ms / 1000)} s y bajo a ${plural(running.limit, "pedido", "pedidos")} a la vez…`;
+  };
+
+  async function runOne(id) {
+    const chunk = doc.chunks.find(c => c.id === id);
+    if (!chunk) return;
+    chunk.status = "working";
+    renderMap(); renderReaderSoon();
+    let waited = false;
+    try {
+      const ctx = {
+        pages: doc.pages, bytes, pdf, signal: ctrl.signal,
+        prevTail: chunk.kind === "text" ? tailBefore(doc.pages, chunk.from) : "",
+        onWait: info => { waited = true; onWait(info); },
+      };
+      const res = await runChunk(chunk, opts, ctx);
+      const at = doc.chunks.findIndex(c => c.id === id);
+      doc.chunks.splice(at, 1, ...res);
+      $("waitNote").hidden = true;
+      if (!waited && res.some(r => r.model !== "local") && ++running.streak >= 2) {
+        running.streak = 0;
+        running.limit = Math.min(S.parallel, running.limit + 1);
       }
-      if (doc.chunks.find(c => c.id === id)?.status !== "pending") running.done++;
-      doc.updatedAt = Date.now();
-      summarize();
-      saveDoc(doc);
-      progress(); renderMap(); renderReaderSoon();
+    } catch (e) {
+      if (e.kind === "auth") { fatal = e; chunk.status = "pending"; return; }
+      chunk.status = "error";
+      chunk.error = e.message || String(e);
     }
+    if (doc.chunks.find(c => c.id === id)?.status !== "pending") running.done++;
+    doc.updatedAt = Date.now();
+    summarize();
+    saveDoc(doc);
+    progress(); renderMap(); renderReaderSoon(); renderTimings();
   }
-  await Promise.all(Array.from({ length: Math.min(S.parallel, todo.length) || 1 }, worker));
+
+  await new Promise(resolve => {
+    const pump = () => {
+      while (running.active < running.limit && queue.length && !ctrl.signal.aborted && !fatal) {
+        const id = queue.shift();
+        running.active++;
+        runOne(id).finally(() => { running.active--; pump(); });
+      }
+      if (!running.active && (!queue.length || ctrl.signal.aborted || fatal)) resolve();
+    };
+    pump();
+  });
+  doc.lastRun = { ms: Math.round(performance.now() - running.t0), at: Date.now() };
 
   doc.chunks.forEach(c => { if (c.status === "working") c.status = "pending"; });
   saveDoc(doc);
   const aborted = ctrl.signal.aborted;
+  clearTimeout(progress.t);
   running = null;
   setOptsDisabled(false);
+  renderTimings();
   renderMap(); renderReader(); updateRunBtn();
   const errs = doc.chunks.filter(c => c.status === "error");
   if (fatal) {
@@ -386,11 +423,32 @@ function setOptsDisabled(dis) {
   $("opts").querySelectorAll("input,select,textarea,.seg button,.chip").forEach(el => { el.disabled = dis; });
   $("stopBtn").hidden = !dis;
 }
+const fmtDur = ms => ms < 1000 ? `${(ms / 1000).toFixed(1).replace(".", ",")} s` : ms < 60000 ? `${Math.round(ms / 100) / 10} s`.replace(".", ",") : `${Math.floor(ms / 60000)} min ${Math.round((ms % 60000) / 1000)} s`;
+
 function progress() {
   if (!running) return;
   const pct = running.total ? Math.round((running.done / running.total) * 100) : 0;
   $("progBar").style.width = Math.max(pct, 3) + "%";
-  $("progText").textContent = `${running.done} de ${plural(running.total, "tramo", "tramos")} · ${pct}%`;
+  $("progText").textContent = `${running.done} de ${plural(running.total, "tramo", "tramos")} · ${pct}% · ${fmtDur(performance.now() - running.t0)} · ${running.limit} a la vez`;
+  clearTimeout(progress.t);
+  progress.t = setTimeout(progress, 1000);
+}
+
+/** Lista de cuánto tardó cada tramo, para comparar. */
+function renderTimings() {
+  const box = $("timings");
+  const done = (doc?.chunks || []).filter(c => c.status === "done" && c.ms != null);
+  if (!done.length) { box.hidden = true; return; }
+  box.hidden = false;
+  const viaGemini = done.filter(c => c.model !== "local");
+  const avg = viaGemini.length ? viaGemini.reduce((s, c) => s + c.ms, 0) / viaGemini.length : 0;
+  const tot = doc.lastRun?.ms;
+  $("timingsSum").innerHTML = `Tiempos${tot ? ` · total <b>${fmtDur(tot)}</b>` : ""}${avg ? ` · promedio por pedido <b>${fmtDur(avg)}</b>` : ""}`;
+  $("timingsList").innerHTML = done.map(c => {
+    const pg = c.from === c.to ? `Pág. ${c.from}` : `Págs. ${c.from}–${c.to}`;
+    const how = c.model === "local" ? "en la app" : (c.kind === "ocr" ? "visión" : "texto") + " · " + c.model.replace(/^gemini-/, "");
+    return `<li><span>${pg}</span><span class="tm-how">${esc(how)}</span><b>${fmtDur(c.ms)}</b></li>`;
+  }).join("");
 }
 function showErr(html) { const b = $("errBox"); b.innerHTML = html; b.hidden = false; }
 
@@ -460,7 +518,7 @@ function renderMeta() {
   const pagesBy = k => done.filter(c => c.kind === k).reduce((s, c) => s + c.to - c.from + 1, 0);
   const t = pagesBy("text"), o = pagesBy("ocr");
   const tokens = done.reduce((s, c) => s + (c.tokens || 0), 0);
-  const models = [...new Set(done.map(c => c.model).filter(Boolean))];
+  const models = [...new Set(done.map(c => c.model === "local" ? "armado en la app" : c.model).filter(Boolean))];
   const parts = [];
   if (doc.detectedLanguage) parts.push(`<span class="badge">Idioma original: <b>${esc(doc.detectedLanguage)}</b></span>`);
   if (doc.translated) parts.push(`<span class="badge a"><i></i>Traducido al ${esc(doc.options?.targetLang || "español")}</span>`);

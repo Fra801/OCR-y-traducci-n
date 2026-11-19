@@ -166,6 +166,13 @@ textarea{resize:vertical;line-height:1.45;font-size:.86rem}
 .link{background:none;border:0;padding:0;color:var(--accent);font-weight:500;font-size:.82rem}
 .link.danger{color:var(--err)}
 .wait{font-size:.78rem;color:var(--scan);background:var(--scan-soft);border-radius:8px;padding:6px 9px}
+.timings summary{display:block;font-size:.8rem;font-weight:400;color:var(--mute)}
+.timings summary::before{display:inline-block;margin-right:8px;vertical-align:2px}
+.timings summary b{color:var(--ink2);font-weight:600}
+.timings ul{list-style:none;margin:8px 0 0;padding:0;max-height:200px;overflow:auto;font-size:.78rem;scrollbar-width:thin}
+.timings li{display:grid;grid-template-columns:auto 1fr auto;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
+.timings .tm-how{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.timings b{font:500 .74rem var(--mono)}
 .err-box{font-size:.82rem;color:var(--err);background:var(--err-soft);border-radius:10px;padding:10px 12px;line-height:1.45}
 .err-box button{margin-top:6px}
 

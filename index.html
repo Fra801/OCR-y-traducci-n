@@ -147,9 +147,17 @@
           </div>
           <div class="field two">
             <label><span class="lbl">Páginas por pedido de OCR</span><input type="number" id="ocrPages" min="1" max="15" value="4"></label>
-            <label><span class="lbl">Pedidos en paralelo</span><input type="number" id="parallel" min="1" max="6" value="2"></label>
+            <label><span class="lbl">Máximo en paralelo</span><input type="number" id="parallel" min="1" max="10" value="6"></label>
           </div>
-          <p class="hint">Con la key gratuita conviene 1 o 2 en paralelo. Menos páginas por pedido = más precisión en páginas densas.</p>
+          <p class="hint">Arranca con 2 pedidos a la vez y sube solo mientras Gemini responda sin demoras; si pide esperar, baja. Menos páginas por pedido = más precisión en páginas densas.</p>
+          <div class="field">
+            <span class="lbl">Páginas con texto</span>
+            <div class="seg" id="textModeSeg" role="radiogroup">
+              <button data-v="fast" class="on" role="radio">Rápido</button>
+              <button data-v="ai" role="radio">Con Gemini</button>
+            </div>
+            <p class="hint"><b>Rápido:</b> títulos, párrafos y listas se arman en la app, al instante; a Gemini solo va el texto para traducir. <b>Con Gemini:</b> más lento, pero reconoce mejor tablas y diseños complicados.</p>
+          </div>
         </details>
 
         <button class="primary" id="runBtn" disabled>Procesar</button>
@@ -159,6 +167,10 @@
           <div class="wait" id="waitNote" hidden></div>
         </div>
         <div class="err-box" id="errBox" hidden></div>
+        <details class="timings" id="timings" hidden>
+          <summary id="timingsSum">Tiempos</summary>
+          <ul id="timingsList"></ul>
+        </details>
       </div>
     </aside>
 

@@ -30,6 +30,38 @@ function pageText(content) {
 }
 
 /**
+ * Renglones de la página con su posición y tamaño de letra, para armar la estructura sin IA.
+ * Cada renglón: [texto, tamaño, x, y (desde arriba), x final]. Medidas en puntos, redondeadas.
+ */
+function pageLines(content, height) {
+  const lines = [];
+  let cur = null;
+  const r1 = v => Math.round(v * 10) / 10;
+  const close = () => {
+    if (cur && cur.t.trim()) lines.push([cur.t.replace(/\s+/g, " ").trim(), r1(cur.s), r1(cur.x), r1(height - cur.y), r1(cur.r)]);
+    cur = null;
+  };
+  for (const it of content.items) {
+    if (!("str" in it)) continue;
+    const [a, b, c, d, e, f] = it.transform;
+    const size = Math.hypot(c, d) || Math.hypot(a, b) || 10;
+    if (it.str) {
+      if (cur && Math.abs(f - cur.y) > size * 0.6) close();
+      if (!cur) cur = { t: "", s: 0, x: e, y: f, r: e };
+      const gap = e - cur.r;
+      if (cur.t && gap > size * 0.15 && !/\s$/.test(cur.t) && !/^\s/.test(it.str)) cur.t += " ";
+      cur.t += it.str;
+      if (it.str.trim()) cur.s = Math.max(cur.s, size);
+      cur.x = Math.min(cur.x, e);
+      cur.r = Math.max(cur.r, e + (it.width || 0));
+    }
+    if (it.hasEOL) close();
+  }
+  close();
+  return lines;
+}
+
+/**
  * Señales de que la página tiene fórmulas: símbolos matemáticos, letras matemáticas de Unicode
  * o varias igualdades. El texto extraído de esas páginas suele salir roto, así que van con visión.
  */
@@ -86,17 +118,21 @@ function usefulChars(text) {
 export async function analyze(pdf, onProgress) {
   const pages = [];
   for (let n = 1; n <= pdf.numPages; n++) {
-    let text = "", fig = false;
+    let text = "", fig = false, lines = [], h = 0, w = 0;
     try {
       const page = await pdf.getPage(n);
-      text = pageText(await page.getTextContent());
+      const vp = page.getViewport({ scale: 1 });
+      h = Math.round(vp.height); w = Math.round(vp.width);
+      const content = await page.getTextContent();
+      text = pageText(content);
+      lines = pageLines(content, vp.height);
       // Solo se miden las imágenes de las páginas con texto: las escaneadas ya van con visión.
       if (usefulChars(text) >= MIN_CHARS_TEXT_PAGE) fig = await hasFigure(page);
       page.cleanup();
     } catch { /* página dañada: irá a OCR */ }
     const chars = usefulChars(text);
     const kind = chars >= MIN_CHARS_TEXT_PAGE ? "text" : "scan";
-    pages.push({ n, text, chars, kind, fig, math: kind === "text" && looksMath(text) });
+    pages.push({ n, text, chars, kind, fig, math: kind === "text" && looksMath(text), lines: kind === "text" ? lines : [], h, w });
     if (n % 5 === 0 || n === pdf.numPages) onProgress?.(n, pdf.numPages);
   }
   return pages;
@@ -117,14 +153,26 @@ export async function renderPage(pdf, n, widthPx, canvas) {
   return canvas;
 }
 
-/** Completa las marcas de figuras y fórmulas en documentos guardados con una versión anterior. */
+/** Completa los datos que agregaron versiones nuevas (figuras, fórmulas, renglones) en documentos viejos. */
+export const needsUpgrade = pages => pages.some(p => p.fig === undefined || (p.kind === "text" && !p.lines));
+
 export async function addFlags(pdf, pages) {
   for (const p of pages) {
-    if (p.fig !== undefined) continue;
-    p.math = p.kind === "text" && looksMath(p.text || "");
-    p.fig = false;
-    if (p.kind === "text") {
-      try { const page = await pdf.getPage(p.n); p.fig = await hasFigure(page); page.cleanup(); } catch { /* sin marca */ }
+    if (p.fig === undefined) {
+      p.math = p.kind === "text" && looksMath(p.text || "");
+      p.fig = false;
+      if (p.kind === "text") {
+        try { const page = await pdf.getPage(p.n); p.fig = await hasFigure(page); page.cleanup(); } catch { /* sin marca */ }
+      }
+    }
+    if (p.kind === "text" && !p.lines) {
+      try {
+        const page = await pdf.getPage(p.n);
+        const vp = page.getViewport({ scale: 1 });
+        p.h = Math.round(vp.height); p.w = Math.round(vp.width);
+        p.lines = pageLines(await page.getTextContent(), vp.height);
+        page.cleanup();
+      } catch { p.lines = []; }
     }
   }
   return pages;

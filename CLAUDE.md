@@ -12,11 +12,12 @@ App estática (GitHub Pages, sin build) que pasa PDFs a texto estructurado con G
 - Fórmulas: dentro del texto van entre `\(` y `\)`; las de renglón aparte son bloques `math` con LaTeX sin delimitadores. Se dibujan con `tex()` de `js/export.js` (KaTeX en el lector, MathML en .html, código LaTeX en Word y .txt). Nunca usar `$` como delimitador: choca con montos de dinero.
 - Figuras: bloques `figure` con la imagen recortada en `img` (data URL JPEG). Gemini da la caja `box` [ymin, xmin, ymax, xmax] en 0–1000 sobre la imagen de la página que se le mandó; se recorta de ese mismo canvas (`cropFigure` en `js/pdf.js`).
 - Páginas con `fig` o `math` (detectadas en `analyze`) van con visión en modo automático.
+- Velocidad: `js/gemini.js` pide el razonamiento mínimo (`THINK`, prueba variantes si el modelo las rechaza y recuerda la que funcionó en `ocrt.think`). Páginas con texto en modo rápido (`o.fast`): estructura con `js/layout.js` (renglones guardados en `page.lines`), y para traducir se mandan solo los textos (`runLocal`, esquema `TSCHEMA`, misma cantidad de ítems; si no coincide, se divide el tramo o se usa el camino con Gemini). Paralelismo adaptativo en `start()` de `js/app.js`.
 - No cambiar la forma de `doc` guardado en IndexedDB sin migrar los documentos viejos (el historial del usuario se perdería).
 
 ## Probar
 
-Servir la carpeta (`python3 -m http.server`) y abrirla con Playwright, interceptando `generativelanguage.googleapis.com` con respuestas simuladas: probar un PDF mixto (páginas con texto y una escaneada), un 503 (debe reintentar), una respuesta con `finishReason: "MAX_TOKENS"` en un tramo de varias páginas (debe dividirlo), la vista lado a lado, la búsqueda y los exportes. Para fórmulas y figuras: un PDF con una imagen y texto con símbolos (∫, ρ, ≈), respuesta simulada con bloques `math`, `\(…\)` y `figure` con `box`. Revisar también en 390 px de ancho.
+Servir la carpeta (`python3 -m http.server`) y abrirla con Playwright, interceptando `generativelanguage.googleapis.com` con respuestas simuladas: probar un PDF mixto (páginas con texto y una escaneada), un 503 (debe reintentar), una respuesta con `finishReason: "MAX_TOKENS"` en un tramo de varias páginas (debe dividirlo), la vista lado a lado, la búsqueda y los exportes. Modo rápido: PDF de varias páginas con títulos más grandes, viñetas, encabezado repetido y número de página (sin traducir no debe haber pedidos; traduciendo, los pedidos llevan "FRAGMENTOS:" y la respuesta es `items`). Para fórmulas y figuras: un PDF con una imagen y texto con símbolos (∫, ρ, ≈), respuesta simulada con bloques `math`, `\(…\)` y `figure` con `box`. Revisar también en 390 px de ancho.
 
 ## Commits
 

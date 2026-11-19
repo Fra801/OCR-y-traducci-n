@@ -7,11 +7,12 @@ Pasá un PDF a texto ordenado (títulos, párrafos, listas, tablas, citas y nota
 ## Cómo funciona
 
 1. **Lee cada página en el navegador.** Las páginas que ya tienen texto seleccionable se leen al instante, sin gastar OCR. Las que son imágenes (escaneos) se marcan para OCR. El **mapa de páginas** muestra cuáles son cuáles.
-2. **Procesa por tramos.** El documento se divide en pedidos chicos a Gemini: unas 12.000 letras de texto por pedido, o 4 páginas escaneadas (ajustable). Así la respuesta nunca se corta y el avance se ve página por página. Si una respuesta igual se corta, ese tramo se divide en dos y se vuelve a pedir.
-3. **Se recupera sola de los errores.** Si Gemini está saturado, reintenta con espera creciente (respeta el tiempo que indica Google) y después prueba con otros modelos. Si algo falla o la detenés, **Continuar** retoma desde donde quedó, incluso otro día: todo queda guardado en el **Historial**.
-4. **Fórmulas en LaTeX.** Las ecuaciones salen escritas en LaTeX y se dibujan con KaTeX, como en un libro. Las páginas con fórmulas se leen con visión aunque tengan texto seleccionable, porque ese texto suele traer las fórmulas rotas.
-5. **Figuras recortadas.** Fotos, gráficos y diagramas se recortan de la página y quedan en su lugar dentro del texto (tocándolas se ven en grande). Opcionalmente, Gemini agrega una descripción breve de cada una, marcada como «Descripción».
-6. **Traduce sin resumir.** Traducción fiel al español (u otro idioma), con el mismo tono y registro. Podés guardar el original para leerlo **lado a lado** y agregar un **glosario** para que los términos técnicos salgan siempre iguales.
+2. **Lo que no necesita IA, se hace en la app.** En las páginas con texto seleccionable, los títulos, párrafos, listas y notas se arman en el navegador a partir del tamaño y la posición de cada renglón (y se sacan los encabezados y números de página repetidos). Si no traducís, esas páginas no usan Gemini y salen al instante. Si traducís, a Gemini solo va el texto para traducir, y el original para la vista lado a lado no se le vuelve a pedir. En **Avanzado → Páginas con texto → Con Gemini** se puede volver al armado con Gemini, más lento pero mejor con tablas y diseños complicados.
+3. **Procesa por tramos.** El documento se divide en pedidos chicos a Gemini: unas 12.000 letras de texto por pedido, o 4 páginas escaneadas (ajustable). Así la respuesta nunca se corta y el avance se ve página por página. Si una respuesta igual se corta, ese tramo se divide en dos y se vuelve a pedir.
+4. **Se recupera sola de los errores.** Arranca con 2 pedidos a la vez y sube solo (hasta 6, o lo que pongas en Avanzado) mientras Gemini responda sin demoras; si Gemini está saturado, baja, reintenta con espera creciente (respeta el tiempo que indica Google) y después prueba con otros modelos. Si algo falla o la detenés, **Continuar** retoma desde donde quedó, incluso otro día: todo queda guardado en el **Historial**.
+5. **Fórmulas en LaTeX.** Las ecuaciones salen escritas en LaTeX y se dibujan con KaTeX, como en un libro. Las páginas con fórmulas se leen con visión aunque tengan texto seleccionable, porque ese texto suele traer las fórmulas rotas.
+6. **Figuras recortadas.** Fotos, gráficos y diagramas se recortan de la página y quedan en su lugar dentro del texto (tocándolas se ven en grande). Opcionalmente, Gemini agrega una descripción breve de cada una, marcada como «Descripción».
+7. **Traduce sin resumir.** Traducción fiel al español (u otro idioma), con el mismo tono y registro. Podés guardar el original para leerlo **lado a lado** y agregar un **glosario** para que los términos técnicos salgan siempre iguales.
 
 ## Qué podés hacer con el resultado
 
@@ -36,6 +37,8 @@ La app llama a Gemini directamente desde tu navegador, con tu propia key:
 
 La key se guarda solo en ese dispositivo. Con la key gratuita, Google puede usar lo que se envía para mejorar sus modelos; para documentos confidenciales conviene una key con facturación.
 
+**Velocidad:** Gemini se usa con el razonamiento al mínimo (para transcribir y traducir no hace falta y es lo que más demora). Con el modelo recomendado, el texto plano va con Flash-Lite y las páginas con visión con Flash. Las páginas escaneadas o con figuras se mandan como imagen; las que solo tienen fórmulas, como PDF recortado, que pesa mucho menos. Debajo del botón, **Tiempos** muestra cuánto tardó cada tramo.
+
 **Modelo:** de entrada usa `gemini-flash-latest`, un alias que Google mantiene apuntando al Flash vigente. En **Avanzado** se puede elegir Flash-Lite (más barato), Pro (más preciso) o cualquier modelo que tenga tu key.
 
 ## Privacidad
@@ -48,7 +51,8 @@ No hay servidor propio: la página es estática. El PDF y los resultados quedan 
 |---|---|
 | `index.html`, `styles.css` | Interfaz |
 | `js/app.js` | Pantallas, opciones, proceso por tramos, lector, historial |
-| `js/engine.js` | Plan de tramos, prompts, esquema JSON, división automática, unión de párrafos |
+| `js/engine.js` | Plan de tramos, prompts, esquema JSON, traducción por fragmentos, división automática, unión de párrafos |
+| `js/layout.js` | Armado de títulos, párrafos, listas y notas a partir de los renglones del PDF, sin IA |
 | `js/gemini.js` | Llamadas a Gemini: reintentos, modelos de respaldo, lista de modelos |
 | `js/pdf.js` | Lectura del PDF con pdf.js, miniaturas, recorte de páginas con pdf-lib |
 | `js/store.js` | Historial en IndexedDB |
