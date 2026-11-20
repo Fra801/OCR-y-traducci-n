@@ -18,14 +18,14 @@ Pasá un PDF a texto ordenado (títulos, párrafos, listas, tablas, citas y nota
 
 - Leerlo con índice, buscador (sin importar tildes), número de página en el margen y tamaño de letra ajustable.
 - Ver la traducción, el original o los dos lado a lado.
-- Copiar todo, o exportarlo a **Word (.doc)**, **Markdown**, **texto**, **página web** o **PDF** (con Imprimir).
+- Copiar todo, o exportarlo a **Word (.docx)**, **Markdown**, **texto**, **página web** o **PDF** (con Imprimir).
 
 | Formato | Fórmulas | Figuras |
 |---|---|---|
 | Imprimir / PDF | dibujadas (KaTeX) | sí |
 | Página web (.html) | dibujadas (MathML) | sí, incrustadas |
 | Markdown (.md) | `$…$` y `$$…$$` (Obsidian, Notion, Typora) | sí, incrustadas |
-| Word (.doc) | código LaTeX: en Word 365 se seleccionan y se insertan como ecuación (modo LaTeX) | sí |
+| Word (.docx) | código LaTeX: en Word 365 se seleccionan y se insertan como ecuación (modo LaTeX) | sí |
 | Texto (.txt) | código LaTeX | se indica «[Figura, p. N]» |
 
 ## API key de Gemini
@@ -66,7 +66,8 @@ No hay servidor propio: la página es estática. El PDF y los resultados quedan 
 | `js/claude.js` | Llamadas a la API de Claude: traduce el pedido y la respuesta al formato de Gemini |
 | `js/pdf.js` | Lectura del PDF con pdf.js, miniaturas, recorte de páginas con pdf-lib |
 | `js/store.js` | Historial en IndexedDB |
-| `js/export.js` | Exportación a texto, Markdown, HTML y Word |
+| `js/export.js` | Exportación a texto, Markdown y HTML |
+| `js/docx.js` | Exportación a Word (.docx real, armado y comprimido en el navegador) |
 | `lib/` | pdf.js 4.10 (Mozilla, Apache 2.0), pdf-lib 1.17 (MIT) y KaTeX 0.19 (MIT), incluidas para que funcione sin conexión a CDNs |
 | `sw.js`, `manifest.webmanifest` | App instalable |
 

@@ -4,9 +4,10 @@ import { planChunks, runChunk, mergedBlocks, tailBefore, needsVision } from "./e
 import { listModels, DEFAULT_MODEL, FALLBACK_MODELS } from "./gemini.js";
 import { listClaudeModels, CLAUDE_MODELS, CLAUDE_FALLBACK, isClaude } from "./claude.js";
 import { saveDoc, getDoc, saveFile, getFile, listDocs, deleteDoc, fingerprint } from "./store.js";
-import { esc, blockHtml, toText, toMarkdown, toHtml, toWord, download } from "./export.js";
+import { esc, blockHtml, toText, toMarkdown, toHtml, download } from "./export.js";
+import { toDocx } from "./docx.js";
 
-export const APP_VERSION = "1.3.0";
+export const APP_VERSION = "1.3.1";
 const $ = id => document.getElementById(id);
 
 /* ================= Ajustes ================= */
@@ -670,7 +671,7 @@ $("exportMenu").addEventListener("click", e => {
     case "txt": return download(toText(blocks), meta.file + ".txt", "text/plain;charset=utf-8");
     case "md": return download(toMarkdown(blocks, meta), meta.file + ".md", "text/markdown;charset=utf-8");
     case "html": return download(toHtml(blocks, meta), meta.file + ".html", "text/html;charset=utf-8");
-    case "doc": return download(toWord(blocks, meta), meta.file + ".doc", "application/msword");
+    case "doc": return download(toDocx(blocks, meta), meta.file + ".docx");
     case "print": return window.print();
   }
 });

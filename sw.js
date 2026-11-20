@@ -1,7 +1,7 @@
 // Caché de la app para usarla instalada. Subir la versión cada vez que cambie un archivo.
-const C = "ocr-traduccion-v6";
+const C = "ocr-traduccion-v7";
 const FILES = ["./", "index.html", "styles.css", "manifest.webmanifest", "icon.svg", "icon-192.png",
-  "js/app.js", "js/engine.js", "js/gemini.js", "js/claude.js", "js/pdf.js", "js/store.js", "js/export.js", "js/layout.js",
+  "js/app.js", "js/engine.js", "js/gemini.js", "js/claude.js", "js/pdf.js", "js/store.js", "js/export.js", "js/docx.js", "js/layout.js",
   "lib/pdf.min.mjs", "lib/pdf.worker.min.mjs", "lib/pdf-lib.esm.min.js",
   "lib/katex/katex.min.mjs", "lib/katex/katex.min.css"];
 self.addEventListener("install", e => {

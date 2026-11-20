@@ -131,33 +131,6 @@ export function toHtml(blocks, meta) {
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(meta.title)}</title><style>${DOC_CSS}</style></head><body><div class="meta">${esc(meta.note)}</div>${htmlBody(blocks, { math: "mathml" })}</body></html>`;
 }
 
-/**
- * Word: un .doc en formato MHTML (HTML + imágenes en un solo archivo), que Word abre con
- * formato e imágenes. Las fórmulas quedan como código LaTeX: en Word 365 se convierten
- * seleccionándolas e insertando una ecuación en modo LaTeX.
- */
-export function toWord(blocks, meta) {
-  const imgs = [];
-  const body = htmlBody(blocks, {
-    math: "tex",
-    imgSrc: b => {
-      if (!b.img) return null;
-      const name = `file:///C:/ocr/figura${imgs.length + 1}.jpg`;
-      imgs.push({ name, data: b.img.split(",")[1], type: b.img.slice(5, b.img.indexOf(";")) });
-      return name;
-    },
-  }).replace(/<figure class="b b-figure">/g, "<p align=\"center\">").replace(/<\/figure>/g, "</p>")
-    .replace(/<div class="b b-math">([\s\S]*?)<\/div>/g, '<p align="center" class="texmath">$1</p>');
-  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>${esc(meta.title)}</title><!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]--><style>${DOC_CSS} img{max-width:16cm} p,li{line-height:115%;mso-line-height-rule:auto} p{margin:0 0 10pt}</style></head><body><div class="meta">${esc(meta.note)}</div>${body}</body></html>`;
-  const B = "----=_ocr_traduccion_" + Date.now();
-  const b64 = str => { const u = new TextEncoder().encode(str); let s = ""; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode(...u.subarray(i, i + 0x8000)); return btoa(s); };
-  const wrap = s => s.replace(/.{1,76}/g, "$&\r\n");
-  let out = `MIME-Version: 1.0\r\nContent-Type: multipart/related; boundary="${B}"\r\n\r\n` +
-    `--${B}\r\nContent-Location: file:///C:/ocr/documento.htm\r\nContent-Transfer-Encoding: base64\r\nContent-Type: text/html; charset="utf-8"\r\n\r\n${wrap(b64(html))}\r\n`;
-  for (const im of imgs) out += `--${B}\r\nContent-Location: ${im.name}\r\nContent-Transfer-Encoding: base64\r\nContent-Type: ${im.type}\r\n\r\n${wrap(im.data)}\r\n`;
-  return out + `--${B}--\r\n`;
-}
-
 export function download(content, name, type) {
   const blob = content instanceof Blob ? content : new Blob([content], { type });
   const url = URL.createObjectURL(blob);
