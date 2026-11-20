@@ -290,20 +290,49 @@ export async function runChunk(chunk, o, ctx) {
 
 const ENDS_SENTENCE = /[.!?:;…»"”')\]]\s*$/;
 
+const norm = t => String(t || "").toLowerCase().replace(/[\d\s.·|–—-]+/g, " ").trim();
+
 /**
- * Une todos los bloques del documento en orden. Si un párrafo quedó partido entre dos
- * tramos (termina sin puntuación y el siguiente empieza en minúscula), los junta.
+ * Quita encabezados y pies que se repiten en cada hoja aunque el modelo los haya transcripto
+ * (título corrido del capítulo o del libro, números de folio sueltos). Un encabezado corrido
+ * es un texto corto que aparece como primer bloque de dos o más páginas distintas.
+ */
+function dropRunningHeads(blocks) {
+  const isFirst = i => i === 0 || blocks[i].page !== blocks[i - 1].page;
+  const groups = new Map();
+  blocks.forEach((b, i) => {
+    if (!isFirst(i) || !/^(h1|h2|h3|p)$/.test(b.type) || String(b.text || "").length > 80) return;
+    const k = norm(b.text);
+    if (!k) return;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(i);
+  });
+  const drop = new Set();
+  for (const idx of groups.values()) {
+    // Tres páginas o más, o dos seguidas: así un subtítulo que casualmente abre dos hojas lejanas no se pierde.
+    const pages = [...new Set(idx.map(i => blocks[i].page))];
+    if (pages.length < 2 || (pages.length === 2 && Math.abs(pages[1] - pages[0]) !== 1)) continue;
+    // Si el primero es el único de su tipo (p. ej. el título real del capítulo entre encabezados corridos), se queda.
+    const t0 = blocks[idx[0]].type;
+    const keepFirst = idx.filter(i => blocks[i].type === t0).length === 1 && t0 === "h1";
+    idx.forEach((i, j) => { if (!(keepFirst && j === 0)) drop.add(i); });
+  }
+  return blocks.filter((b, i) => !drop.has(i) && !(b.type === "p" && /^\s*[-–—]?\s*\d{1,4}\s*[-–—]?\s*$/.test(b.text || "")));
+}
+
+/**
+ * Une todos los bloques del documento en orden, quita los encabezados corridos y, si un
+ * párrafo quedó partido entre dos páginas o tramos (termina sin puntuación y el siguiente
+ * empieza en minúscula), los junta.
  */
 export function mergedBlocks(chunks) {
+  const all = dropRunningHeads(chunks.filter(c => c.status === "done").flatMap(c => c.blocks));
   const out = [];
-  for (const c of chunks) {
-    if (c.status !== "done") continue;
-    c.blocks.forEach((b, i) => {
-      const prev = out[out.length - 1];
-      if (i === 0 && prev && prev.type === "p" && b.type === "p" && !ENDS_SENTENCE.test(prev.text) && /^\p{Ll}/u.test(b.text)) {
-        out[out.length - 1] = { ...prev, text: prev.text + " " + b.text, original: prev.original && b.original ? prev.original + " " + b.original : prev.original };
-      } else out.push(b);
-    });
+  for (const b of all) {
+    const prev = out[out.length - 1];
+    if (prev && prev.type === "p" && b.type === "p" && b.page !== prev.page && !ENDS_SENTENCE.test(prev.text) && /^\p{Ll}/u.test(b.text)) {
+      out[out.length - 1] = { ...prev, text: prev.text + " " + b.text, original: prev.original && b.original ? prev.original + " " + b.original : prev.original };
+    } else out.push(b);
   }
   return out;
 }
