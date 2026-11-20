@@ -7,13 +7,13 @@ import { saveDoc, getDoc, saveFile, getFile, listDocs, deleteDoc, fingerprint } 
 import { esc, blockHtml, toText, toMarkdown, toHtml, download } from "./export.js";
 import { toDocx } from "./docx.js";
 
-export const APP_VERSION = "1.3.2";
+export const APP_VERSION = "1.3.3";
 const $ = id => document.getElementById(id);
 
 /* ================= Ajustes ================= */
 const SKEY = "ocrt.settings";
 const S = Object.assign({
-  key: "", claudeKey: "", model: DEFAULT_MODEL, models: [], mode: "auto", translate: false, targetLang: "español",
+  key: "", claudeKey: "", claudeBase: "", claudeModels: [], model: DEFAULT_MODEL, models: [], mode: "auto", translate: false, targetLang: "español",
   bilingual: true, ocrPages: 4, parallel: 6, fontScale: 1, figures: true, describe: false, textMode: "fast",
 }, JSON.parse(localStorage.getItem(SKEY) || "{}"));
 const saveS = () => localStorage.setItem(SKEY, JSON.stringify(S));
@@ -49,6 +49,8 @@ function keyBadge() {
   $("keyLabel").textContent = activeKey() ? `${prov()} conectado` : "Poner API key";
   $("settingsBtn").title = $("keyLabel").textContent;
 }
+// Modelos de Claude: los que devolvió «Probar» (sirve para proxies con otros modelos) o los fijos.
+const claudeList = () => (S.claudeModels || []).length ? S.claudeModels : CLAUDE_MODELS;
 function fillModels() {
   const sel = $("modelSel");
   const base = [
@@ -59,7 +61,7 @@ function fillModels() {
   const seen = new Set(base.map(m => m.id));
   const extra = (S.models || []).filter(m => !seen.has(m.id));
   sel.innerHTML = base.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join("") +
-    `<optgroup label="Claude (con tu key de Claude)">${CLAUDE_MODELS.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join("")}</optgroup>` +
+    `<optgroup label="Claude (con tu key de Claude)">${claudeList().map(m => `<option value="${esc(m.id)}">${esc(m.label)}</option>`).join("")}</optgroup>` +
     (extra.length ? `<optgroup label="Disponibles con tu key">${extra.map(m => `<option value="${esc(m.id)}">${esc(m.label)} · ${esc(m.id)}</option>`).join("")}</optgroup>` : "");
   if (![...sel.options].some(o => o.value === S.model)) sel.insertAdjacentHTML("beforeend", `<option value="${esc(S.model)}">${esc(S.model)}</option>`);
   sel.value = S.model;
@@ -67,6 +69,7 @@ function fillModels() {
 function openSettings(msg) {
   $("keyIn").value = S.key;
   $("claudeKeyIn").value = S.claudeKey || "";
+  $("claudeBaseIn").value = S.claudeBase || "";
   const box = isClaude(S.model) ? "claudeKeyMsg" : "keyMsg";
   $("keyMsg").textContent = $("claudeKeyMsg").textContent = "";
   $("keyMsg").className = $("claudeKeyMsg").className = "key-msg";
@@ -97,17 +100,24 @@ $("claudeKeyTest").onclick = async () => {
   const m = $("claudeKeyMsg");
   if (!k) { m.textContent = "Pegá la key primero."; m.className = "key-msg bad"; return; }
   m.textContent = "Probando…"; m.className = "key-msg";
+  const prevBase = S.claudeBase;
+  S.claudeBase = $("claudeBaseIn").value.trim(); saveS();
   try {
     const list = await listClaudeModels(k);
+    S.claudeModels = list; saveS(); fillModels();
     m.textContent = `Funciona · ${plural(list.length, "modelo disponible", "modelos disponibles")}`; m.className = "key-msg ok";
   } catch (e) {
+    S.claudeBase = prevBase; saveS();
     m.textContent = e.kind === "auth" || e.kind === "badrequest" ? "La key no es válida." : "No se pudo probar: " + e.message;
     m.className = "key-msg bad";
   }
 };
 $("settingsForm").addEventListener("submit", e => {
   if (e.submitter?.value !== "save") return;
-  S.key = $("keyIn").value.trim(); S.claudeKey = $("claudeKeyIn").value.trim(); saveS(); keyBadge();
+  S.key = $("keyIn").value.trim(); S.claudeKey = $("claudeKeyIn").value.trim();
+  const base = $("claudeBaseIn").value.trim();
+  if (base !== S.claudeBase) { S.claudeBase = base; S.claudeModels = []; fillModels(); }
+  saveS(); keyBadge();
   toast(S.key || S.claudeKey ? "API keys guardadas en este dispositivo." : "Se quitaron las API keys.");
   updateRunBtn();
 });

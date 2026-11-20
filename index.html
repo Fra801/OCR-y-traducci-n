@@ -245,8 +245,12 @@
       <button type="button" class="tool sq" id="claudeKeyShow" title="Mostrar">👁</button>
     </div>
     <div class="key-actions">
-      <button type="button" class="tool" id="claudeKeyTest">Probar</button>
+      <button type="button" class="tool" id="claudeKeyTest">Probar y cargar modelos</button>
       <span class="key-msg" id="claudeKeyMsg"></span>
+    </div>
+    <label class="muted small" for="claudeBaseIn">URL base (opcional): dejala vacía para usar Anthropic. Si ponés otra (un proxy compatible con la API de Anthropic), los PDF y la key van a ese servidor en vez de a Anthropic.</label>
+    <div class="key-row">
+      <input type="url" id="claudeBaseIn" placeholder="https://api.anthropic.com" autocomplete="off" spellcheck="false">
     </div>
     <p class="muted small">Con Claude conviene apagar «Recortar figuras»: ubica los recuadros de las figuras con menos precisión que Gemini.</p>
     <footer><button type="button" class="link danger" id="keyDel">Borrar keys</button><button class="primary" value="save" id="keySave">Guardar</button></footer>

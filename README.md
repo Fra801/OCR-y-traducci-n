@@ -50,6 +50,8 @@ También se pueden usar los modelos de Claude (Haiku, Sonnet u Opus), elegiéndo
 
 La app llama a la API de Anthropic directamente desde el navegador (con el encabezado `anthropic-dangerous-direct-browser-access`), con esfuerzo bajo y salida JSON con esquema. Si el modelo elegido está saturado, prueba con Haiku y después con Sonnet. Con Claude conviene apagar **Recortar figuras**: ubica los recuadros con menos precisión que Gemini.
 
+**URL base (opcional):** en la misma sección se puede poner la dirección de un proxy compatible con la API de Anthropic. Tocando **Probar y cargar modelos**, la lista de modelos de Claude pasa a ser la que ofrece ese servidor. Ojo: con una URL base propia, los PDF y la key van a ese servidor y no a Anthropic.
+
 ## Privacidad
 
 No hay servidor propio: la página es estática. El PDF y los resultados quedan en el navegador (IndexedDB). Lo único que sale del dispositivo son los tramos que se mandan a Google (o a Anthropic, si elegís Claude) para el OCR o la traducción.

@@ -1,11 +1,20 @@
 // Cliente de la API de Claude (Anthropic) que corre directamente en el navegador.
 // La API key se guarda solo en este dispositivo (localStorage) y viaja únicamente a Anthropic.
-// Recibe los pedidos en el mismo formato que Gemini y devuelve la respuesta con la forma de
+// Si en ajustes hay una URL base propia (un proxy compatible con la API de Anthropic), los
+// pedidos van ahí en vez de a Anthropic. Recibe los pedidos en el mismo formato que Gemini y devuelve la respuesta con la forma de
 // Gemini, así el resto de la app no cambia.
 
 import { GeminiError } from "./gemini.js";
 
-const API = "https://api.anthropic.com/v1";
+const OFFICIAL = "https://api.anthropic.com";
+// URL base elegida en ajustes (vacía = Anthropic). Se acepta con o sin "/v1" al final.
+function apiBase() {
+  let b = "";
+  try { b = (JSON.parse(localStorage.getItem("ocrt.settings") || "{}").claudeBase || "").trim(); } catch { /* ajustes rotos */ }
+  b = (b || OFFICIAL).replace(/\/+$/, "");
+  return /\/v1$/.test(b) ? b : b + "/v1";
+}
+const isOfficial = () => apiBase() === OFFICIAL + "/v1";
 const MAX_TOKENS = 20000;
 
 export const CLAUDE_MODELS = [
@@ -20,8 +29,9 @@ const headers = key => ({
   "content-type": "application/json",
   "x-api-key": key,
   "anthropic-version": "2023-06-01",
-  // Necesario para llamar a la API desde el navegador (CORS). La key es del propio usuario.
-  "anthropic-dangerous-direct-browser-access": "true",
+  // Necesario para llamar a la API de Anthropic desde el navegador (CORS). La key es del propio
+  // usuario. A un proxy no se le manda: si no lo tiene permitido, el navegador corta el pedido.
+  ...(isOfficial() ? { "anthropic-dangerous-direct-browser-access": "true" } : {}),
 });
 
 /** Esquema de Gemini (tipos en mayúscula, propertyOrdering) → JSON Schema estándar. */
@@ -70,10 +80,10 @@ function classify(code, data, resp) {
 async function post(key, req, signal) {
   let resp;
   try {
-    resp = await fetch(`${API}/messages`, { method: "POST", headers: headers(key), body: JSON.stringify(req), signal });
+    resp = await fetch(`${apiBase()}/messages`, { method: "POST", headers: headers(key), body: JSON.stringify(req), signal });
   } catch (e) {
     if (signal?.aborted) throw new GeminiError("Cancelado", { kind: "aborted" });
-    throw new GeminiError("Sin conexión con Claude (" + e.message + ")", { kind: "overloaded" });
+    throw new GeminiError((isOfficial() ? "Sin conexión con Claude (" : "Sin conexión con la URL base de Claude; puede que no acepte pedidos desde el navegador (") + e.message + ")", { kind: "overloaded" });
   }
   const text = await resp.text();
   let data = null;
@@ -133,7 +143,7 @@ function toGeminiShape(data) {
 
 /** Lista los modelos disponibles para la key (sirve también para validarla). */
 export async function listClaudeModels(key) {
-  const r = await fetch(`${API}/models?limit=100`, { headers: headers(key) });
+  const r = await fetch(`${apiBase()}/models?limit=100`, { headers: headers(key) });
   const data = await r.json().catch(() => null);
   if (!r.ok || data?.type === "error") throw classify(r.status, data, r);
   return (data.data || []).map(m => ({ id: m.id, label: m.display_name || m.id }));
