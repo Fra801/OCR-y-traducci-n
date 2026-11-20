@@ -1,6 +1,8 @@
 // Cliente de la API de Gemini que corre directamente en el navegador.
 // La API key se guarda solo en este dispositivo (localStorage) y viaja únicamente a Google.
 
+import { claudeCall, isClaude } from "./claude.js";
+
 const API = "https://generativelanguage.googleapis.com/v1beta";
 
 // Alias que Google mantiene apuntando al modelo vigente, más uno fijo como último recurso.
@@ -83,6 +85,7 @@ const saveThink = () => { try { localStorage.setItem(TKEY, JSON.stringify(thinkI
 
 /** Pedido a un modelo, ajustando el razonamiento y el esquema si el modelo los rechaza. */
 async function callModel(model, key, body, signal) {
+  if (isClaude(model)) return claudeCall(model, key, body, signal);
   let i = thinkIdx[model] ?? 0;
   let noSchema = false;
   for (;;) {
@@ -134,7 +137,7 @@ export async function generate({ key, models, body, signal, onWait }) {
     }
   }
   if (last?.kind === "overloaded") {
-    throw new GeminiError(`Gemini está saturado (probé ${tried.join(", ")} con varios reintentos). Esperá unos minutos y tocá «Continuar».`, { kind: "overloaded" });
+    throw new GeminiError(`${isClaude(models[0]) ? "Claude" : "Gemini"} está saturado (probé ${tried.join(", ")} con varios reintentos). Esperá unos minutos y tocá «Continuar».`, { kind: "overloaded" });
   }
   throw last || new GeminiError("No se pudo usar ningún modelo.");
 }
@@ -144,12 +147,12 @@ export function responseText(data) {
   const c = data?.candidates?.[0];
   if (!c) {
     const why = data?.promptFeedback?.blockReason;
-    throw new GeminiError(why ? `Gemini bloqueó el contenido (${why}).` : "Gemini no devolvió respuesta.", { kind: "blocked" });
+    throw new GeminiError(why ? `El modelo bloqueó el contenido (${why}).` : "El modelo no devolvió respuesta.", { kind: "blocked" });
   }
   const text = (c.content?.parts || []).filter(p => !p.thought).map(p => p.text || "").join("");
   if (c.finishReason === "MAX_TOKENS") throw new GeminiError("La respuesta se cortó por largo.", { kind: "truncated" });
   if (c.finishReason && !["STOP", "FINISH_REASON_UNSPECIFIED"].includes(c.finishReason) && !text) {
-    throw new GeminiError(`Gemini no completó la respuesta (${c.finishReason}).`, { kind: "blocked" });
+    throw new GeminiError(`El modelo no completó la respuesta (${c.finishReason}).`, { kind: "blocked" });
   }
   return text;
 }

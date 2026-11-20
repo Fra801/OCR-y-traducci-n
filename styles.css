@@ -286,6 +286,8 @@ textarea{resize:vertical;line-height:1.45;font-size:.86rem}
 .sheet footer{display:flex;justify-content:space-between;align-items:center;margin-top:4px}
 .muted{color:var(--mute);font-size:.88rem;margin:0;line-height:1.5}
 .muted.small{font-size:.78rem}
+.key-h{font-family:var(--sans);font-size:.9rem;font-weight:600;margin:1em 0 -.2em}
+.key-h:first-of-type{margin-top:.2em}
 .key-row{display:flex;gap:8px}
 .key-row input{font-family:var(--mono);font-size:.86rem}
 .key-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}

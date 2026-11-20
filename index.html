@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>OCR y traducción</title>
-<meta name="description" content="Pasá un PDF (con texto o escaneado) a texto estructurado y, si querés, traducilo fielmente. Funciona en el navegador con tu API key de Gemini.">
+<meta name="description" content="Pasá un PDF (con texto o escaneado) a texto estructurado y, si querés, traducilo fielmente. Funciona en el navegador con tu API key de Gemini o de Claude.">
 <meta name="theme-color" content="#f3f0e8" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#101114" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -225,8 +225,9 @@
 <!-- ============ AJUSTES ============ -->
 <dialog class="sheet" id="settingsDlg">
   <form method="dialog" class="sheet-in" id="settingsForm">
-    <header><h2>Tu API key de Gemini</h2><button class="icon-btn" value="cancel" formnovalidate><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
-    <p class="muted">La app llama a Gemini directamente desde tu navegador. La key se guarda solo en este dispositivo. Conseguila gratis en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> → <i>Create API key</i>.</p>
+    <header><h2>Tus API keys</h2><button class="icon-btn" value="cancel" formnovalidate><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></header>
+    <h3 class="key-h">Gemini</h3>
+    <p class="muted">La app llama al modelo directamente desde tu navegador. La key se guarda solo en este dispositivo. Conseguila gratis en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a> → <i>Create API key</i>.</p>
     <div class="key-row">
       <input type="password" id="keyIn" placeholder="AIza…" autocomplete="off" spellcheck="false">
       <button type="button" class="tool sq" id="keyShow" title="Mostrar">👁</button>
@@ -236,7 +237,19 @@
       <span class="key-msg" id="keyMsg"></span>
     </div>
     <p class="muted small">Con la key gratuita, Google puede usar el contenido enviado para mejorar sus productos. Para documentos confidenciales usá una key con facturación activada.</p>
-    <footer><button type="button" class="link danger" id="keyDel">Borrar key</button><button class="primary" value="save" id="keySave">Guardar</button></footer>
+
+    <h3 class="key-h">Claude (opcional)</h3>
+    <p class="muted">Para usar los modelos de Claude, elegilos en <i>Avanzado → Modelo</i>. La key se crea en la <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener">Consola de Claude</a> → <i>API keys</i>. El uso de la API se cobra aparte de la suscripción de Claude (los planes Max, Ultra y Team traen créditos mensuales).</p>
+    <div class="key-row">
+      <input type="password" id="claudeKeyIn" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+      <button type="button" class="tool sq" id="claudeKeyShow" title="Mostrar">👁</button>
+    </div>
+    <div class="key-actions">
+      <button type="button" class="tool" id="claudeKeyTest">Probar</button>
+      <span class="key-msg" id="claudeKeyMsg"></span>
+    </div>
+    <p class="muted small">Con Claude conviene apagar «Recortar figuras»: ubica los recuadros de las figuras con menos precisión que Gemini.</p>
+    <footer><button type="button" class="link danger" id="keyDel">Borrar keys</button><button class="primary" value="save" id="keySave">Guardar</button></footer>
   </form>
 </dialog>
 

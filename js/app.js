@@ -2,16 +2,17 @@ import { openPdf, analyze, renderPage, addFlags, needsUpgrade } from "./pdf.js";
 import { docStats } from "./layout.js";
 import { planChunks, runChunk, mergedBlocks, tailBefore, needsVision } from "./engine.js";
 import { listModels, DEFAULT_MODEL, FALLBACK_MODELS } from "./gemini.js";
+import { listClaudeModels, CLAUDE_MODELS, CLAUDE_FALLBACK, isClaude } from "./claude.js";
 import { saveDoc, getDoc, saveFile, getFile, listDocs, deleteDoc, fingerprint } from "./store.js";
 import { esc, blockHtml, toText, toMarkdown, toHtml, toWord, download } from "./export.js";
 
-export const APP_VERSION = "1.2.1";
+export const APP_VERSION = "1.3.0";
 const $ = id => document.getElementById(id);
 
 /* ================= Ajustes ================= */
 const SKEY = "ocrt.settings";
 const S = Object.assign({
-  key: "", model: DEFAULT_MODEL, models: [], mode: "auto", translate: false, targetLang: "español",
+  key: "", claudeKey: "", model: DEFAULT_MODEL, models: [], mode: "auto", translate: false, targetLang: "español",
   bilingual: true, ocrPages: 4, parallel: 6, fontScale: 1, figures: true, describe: false, textMode: "fast",
 }, JSON.parse(localStorage.getItem(SKEY) || "{}"));
 const saveS = () => localStorage.setItem(SKEY, JSON.stringify(S));
@@ -39,9 +40,12 @@ const plural = (n, s, p) => `${n} ${n === 1 ? s : p}`;
 const debounce = (fn, ms) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
 /* ================= API key ================= */
+// Proveedor según el modelo elegido: Claude o Gemini, cada uno con su key.
+const prov = () => isClaude(S.model) ? "Claude" : "Gemini";
+const activeKey = () => isClaude(S.model) ? S.claudeKey : S.key;
 function keyBadge() {
-  $("keyDot").classList.toggle("ok", !!S.key);
-  $("keyLabel").textContent = S.key ? "Gemini conectado" : "Poner API key";
+  $("keyDot").classList.toggle("ok", !!activeKey());
+  $("keyLabel").textContent = activeKey() ? `${prov()} conectado` : "Poner API key";
   $("settingsBtn").title = $("keyLabel").textContent;
 }
 function fillModels() {
@@ -54,16 +58,21 @@ function fillModels() {
   const seen = new Set(base.map(m => m.id));
   const extra = (S.models || []).filter(m => !seen.has(m.id));
   sel.innerHTML = base.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join("") +
+    `<optgroup label="Claude (con tu key de Claude)">${CLAUDE_MODELS.map(m => `<option value="${m.id}">${esc(m.label)}</option>`).join("")}</optgroup>` +
     (extra.length ? `<optgroup label="Disponibles con tu key">${extra.map(m => `<option value="${esc(m.id)}">${esc(m.label)} · ${esc(m.id)}</option>`).join("")}</optgroup>` : "");
   if (![...sel.options].some(o => o.value === S.model)) sel.insertAdjacentHTML("beforeend", `<option value="${esc(S.model)}">${esc(S.model)}</option>`);
   sel.value = S.model;
 }
 function openSettings(msg) {
   $("keyIn").value = S.key;
-  $("keyMsg").textContent = msg || "";
-  $("keyMsg").className = "key-msg" + (msg ? " bad" : "");
+  $("claudeKeyIn").value = S.claudeKey || "";
+  const box = isClaude(S.model) ? "claudeKeyMsg" : "keyMsg";
+  $("keyMsg").textContent = $("claudeKeyMsg").textContent = "";
+  $("keyMsg").className = $("claudeKeyMsg").className = "key-msg";
+  $(box).textContent = msg || "";
+  $(box).className = "key-msg" + (msg ? " bad" : "");
   $("settingsDlg").showModal();
-  if (!S.key) setTimeout(() => $("keyIn").focus(), 50);
+  if (!activeKey()) setTimeout(() => $(isClaude(S.model) ? "claudeKeyIn" : "keyIn").focus(), 50);
 }
 $("settingsBtn").onclick = () => openSettings();
 $("keyShow").onclick = () => { const i = $("keyIn"); i.type = i.type === "password" ? "text" : "password"; };
@@ -81,13 +90,27 @@ $("keyTest").onclick = async () => {
     m.className = "key-msg bad";
   }
 };
+$("claudeKeyShow").onclick = () => { const i = $("claudeKeyIn"); i.type = i.type === "password" ? "text" : "password"; };
+$("claudeKeyTest").onclick = async () => {
+  const k = $("claudeKeyIn").value.trim();
+  const m = $("claudeKeyMsg");
+  if (!k) { m.textContent = "Pegá la key primero."; m.className = "key-msg bad"; return; }
+  m.textContent = "Probando…"; m.className = "key-msg";
+  try {
+    const list = await listClaudeModels(k);
+    m.textContent = `Funciona · ${plural(list.length, "modelo disponible", "modelos disponibles")}`; m.className = "key-msg ok";
+  } catch (e) {
+    m.textContent = e.kind === "auth" || e.kind === "badrequest" ? "La key no es válida." : "No se pudo probar: " + e.message;
+    m.className = "key-msg bad";
+  }
+};
 $("settingsForm").addEventListener("submit", e => {
   if (e.submitter?.value !== "save") return;
-  S.key = $("keyIn").value.trim(); saveS(); keyBadge();
-  toast(S.key ? "API key guardada en este dispositivo." : "Se quitó la API key.");
+  S.key = $("keyIn").value.trim(); S.claudeKey = $("claudeKeyIn").value.trim(); saveS(); keyBadge();
+  toast(S.key || S.claudeKey ? "API keys guardadas en este dispositivo." : "Se quitaron las API keys.");
   updateRunBtn();
 });
-$("keyDel").onclick = () => { $("keyIn").value = ""; S.key = ""; saveS(); keyBadge(); $("settingsDlg").close(); toast("API key borrada."); updateRunBtn(); };
+$("keyDel").onclick = () => { $("keyIn").value = ""; $("claudeKeyIn").value = ""; S.key = ""; S.claudeKey = ""; saveS(); keyBadge(); $("settingsDlg").close(); toast("API keys borradas."); updateRunBtn(); };
 
 /* ================= Pantallas ================= */
 function show(screen) {
@@ -251,7 +274,7 @@ $("bilingual").onchange = () => { S.bilingual = $("bilingual").checked; saveS();
 $("figures").onchange = () => { S.figures = $("figures").checked; $("describeRow").hidden = !S.figures; saveS(); renderMap(); updateRunBtn(); };
 $("describe").onchange = () => { S.describe = $("describe").checked; saveS(); updateRunBtn(); };
 $("glossary").oninput = debounce(updateRunBtn, 300);
-$("modelSel").onchange = () => { S.model = $("modelSel").value; saveS(); };
+$("modelSel").onchange = () => { S.model = $("modelSel").value; saveS(); keyBadge(); updateRunBtn(); };
 $("ocrPages").onchange = () => { S.ocrPages = clamp(+$("ocrPages").value, 1, 15); $("ocrPages").value = S.ocrPages; saveS(); updateRunBtn(); };
 $("parallel").onchange = () => { S.parallel = clamp(+$("parallel").value, 1, 10); $("parallel").value = S.parallel; saveS(); };
 $("textModeSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; setSeg("textModeSeg", b.dataset.v); S.textMode = b.dataset.v; saveS(); updateRunBtn(); });
@@ -301,7 +324,7 @@ function updateRunBtn() {
   btn.dataset.state = pendingSame ? "resume" : doneSame ? "redo" : "new";
 }
 
-const reqs = n => n ? plural(n, "pedido a Gemini", "pedidos a Gemini") : "sin usar Gemini";
+const reqs = n => n ? plural(n, `pedido a ${prov()}`, `pedidos a ${prov()}`) : `sin usar ${prov()}`;
 
 /* ================= Procesamiento ================= */
 $("runBtn").onclick = () => start();
@@ -309,7 +332,7 @@ $("stopBtn").onclick = () => { if (running) { running.ctrl.abort(); $("progText"
 
 async function start() {
   if (running || !doc) return;
-  if (!S.key) return openSettings("Para procesar hace falta tu API key de Gemini.");
+  if (!activeKey()) return openSettings(`Para procesar con el modelo elegido hace falta tu API key de ${prov()}.`);
   const o = currentOptions();
   const state = $("runBtn").dataset.state;
   const hasDone = doc.chunks.some(c => c.status === "done" && c.blocks?.length);
@@ -332,11 +355,11 @@ async function start() {
   setOptsDisabled(true);
   progress();
 
-  const models = [S.model, ...FALLBACK_MODELS.filter(m => m !== S.model)];
+  const models = [S.model, ...(isClaude(S.model) ? CLAUDE_FALLBACK : FALLBACK_MODELS).filter(m => m !== S.model)];
   // Con el modelo recomendado, el texto plano (estructurar o traducir) va con Flash-Lite, que es
   // más rápido; las páginas con visión siguen con Flash. Si se eligió otro modelo, se usa para todo.
   const textModels = S.model === DEFAULT_MODEL ? ["gemini-flash-lite-latest", ...models.filter(m => m !== "gemini-flash-lite-latest")] : models;
-  const opts = { ...o, key: S.key, models, textModels, fileName: doc.name, stats: docStats(doc.pages) };
+  const opts = { ...o, key: activeKey(), models, textModels, fileName: doc.name, stats: docStats(doc.pages) };
   let fatal = null;
   const queue = [...todo];
 
@@ -346,7 +369,7 @@ async function start() {
     running.limit = Math.max(1, Math.floor(running.limit / 2));
     running.streak = 0;
     const w = $("waitNote"); w.hidden = false;
-    w.textContent = `Gemini está con mucha demanda (${model}). Reintento en ${Math.round(ms / 1000)} s y bajo a ${plural(running.limit, "pedido", "pedidos")} a la vez…`;
+    w.textContent = `${prov()} está con mucha demanda (${model}). Reintento en ${Math.round(ms / 1000)} s y bajo a ${plural(running.limit, "pedido", "pedidos")} a la vez…`;
   };
 
   async function runOne(id) {
@@ -405,7 +428,7 @@ async function start() {
   const errs = doc.chunks.filter(c => c.status === "error");
   if (fatal) {
     $("runRow").hidden = true;
-    openSettings("Gemini rechazó la API key: " + fatal.message);
+    openSettings(`${prov()} rechazó la API key: ` + fatal.message);
   } else if (errs.length) {
     showErr(`${plural(errs.length, "tramo quedó", "tramos quedaron")} con error. ${esc(errs[0].error)}<br><button class="link" id="retryAll">Reintentar los que fallaron</button>`);
     $("retryAll").onclick = () => start();
@@ -446,7 +469,7 @@ function renderTimings() {
   $("timingsSum").innerHTML = `Tiempos${tot ? ` · total <b>${fmtDur(tot)}</b>` : ""}${avg ? ` · promedio por pedido <b>${fmtDur(avg)}</b>` : ""}`;
   $("timingsList").innerHTML = done.map(c => {
     const pg = c.from === c.to ? `Pág. ${c.from}` : `Págs. ${c.from}–${c.to}`;
-    const how = c.model === "local" ? "en la app" : (c.kind === "ocr" ? "visión" : "texto") + " · " + c.model.replace(/^gemini-/, "");
+    const how = c.model === "local" ? "en la app" : (c.kind === "ocr" ? "visión" : "texto") + " · " + c.model.replace(/^(gemini|claude)-/, "");
     return `<li><span>${pg}</span><span class="tm-how">${esc(how)}</span><b>${fmtDur(c.ms)}</b></li>`;
   }).join("");
 }

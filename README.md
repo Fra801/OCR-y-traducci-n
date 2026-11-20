@@ -41,9 +41,18 @@ La key se guarda solo en ese dispositivo. Con la key gratuita, Google puede usar
 
 **Modelo:** de entrada usa `gemini-flash-latest`, un alias que Google mantiene apuntando al Flash vigente. En **Avanzado** se puede elegir Flash-Lite (más barato), Pro (más preciso) o cualquier modelo que tenga tu key.
 
+## API key de Claude (opcional)
+
+También se pueden usar los modelos de Claude (Haiku, Sonnet u Opus), elegiéndolos en **Avanzado → Modelo**:
+
+1. Entrá a la [Consola de Claude](https://platform.claude.com/settings/keys) y creá una API key. El uso de la API se cobra aparte de la suscripción de Claude; los planes Max, Ultra y Team traen créditos mensuales si vinculás una organización de la Consola.
+2. En la app, abrí **API keys**, pegala en la sección **Claude** y tocá **Probar**.
+
+La app llama a la API de Anthropic directamente desde el navegador (con el encabezado `anthropic-dangerous-direct-browser-access`), con esfuerzo bajo y salida JSON con esquema. Si el modelo elegido está saturado, prueba con Haiku y después con Sonnet. Con Claude conviene apagar **Recortar figuras**: ubica los recuadros con menos precisión que Gemini.
+
 ## Privacidad
 
-No hay servidor propio: la página es estática. El PDF y los resultados quedan en el navegador (IndexedDB). Lo único que sale del dispositivo son los tramos que se mandan a Google para el OCR o la traducción.
+No hay servidor propio: la página es estática. El PDF y los resultados quedan en el navegador (IndexedDB). Lo único que sale del dispositivo son los tramos que se mandan a Google (o a Anthropic, si elegís Claude) para el OCR o la traducción.
 
 ## Archivos
 
@@ -54,6 +63,7 @@ No hay servidor propio: la página es estática. El PDF y los resultados quedan 
 | `js/engine.js` | Plan de tramos, prompts, esquema JSON, traducción por fragmentos, división automática, unión de párrafos |
 | `js/layout.js` | Armado de títulos, párrafos, listas y notas a partir de los renglones del PDF, sin IA |
 | `js/gemini.js` | Llamadas a Gemini: reintentos, modelos de respaldo, lista de modelos |
+| `js/claude.js` | Llamadas a la API de Claude: traduce el pedido y la respuesta al formato de Gemini |
 | `js/pdf.js` | Lectura del PDF con pdf.js, miniaturas, recorte de páginas con pdf-lib |
 | `js/store.js` | Historial en IndexedDB |
 | `js/export.js` | Exportación a texto, Markdown, HTML y Word |
