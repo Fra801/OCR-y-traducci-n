@@ -7,7 +7,7 @@ import { saveDoc, getDoc, saveFile, getFile, listDocs, deleteDoc, fingerprint } 
 import { esc, blockHtml, toText, toMarkdown, toHtml, download } from "./export.js";
 import { toDocx } from "./docx.js";
 
-export const APP_VERSION = "1.3.3";
+export const APP_VERSION = "1.3.4";
 const $ = id => document.getElementById(id);
 
 /* ================= Ajustes ================= */

@@ -143,7 +143,18 @@ function toGeminiShape(data) {
 
 /** Lista los modelos disponibles para la key (sirve también para validarla). */
 export async function listClaudeModels(key) {
-  const r = await fetch(`${apiBase()}/models?limit=100`, { headers: headers(key) });
+  // «Load failed» (Safari) o «Failed to fetch» (Chrome): el pedido no llegó o el navegador lo
+  // bloqueó. Suele ser pasajero con proxies saturados, así que se reintenta un par de veces.
+  let r;
+  for (let i = 0; ; i++) {
+    try { r = await fetch(`${apiBase()}/models?limit=100`, { headers: headers(key) }); break; }
+    catch (e) {
+      if (i < 2) { await new Promise(res => setTimeout(res, 1500 * (i + 1))); continue; }
+      throw new GeminiError(isOfficial()
+        ? "sin conexión con Claude. Revisá tu internet y probá de nuevo."
+        : "el servidor de la URL base no respondió o no acepta pedidos desde el navegador. Si a veces funciona, está saturado o caído: probá en un rato.", { kind: "overloaded" });
+    }
+  }
   const data = await r.json().catch(() => null);
   if (!r.ok || data?.type === "error") throw classify(r.status, data, r);
   return (data.data || []).map(m => ({ id: m.id, label: m.display_name || m.id }));
