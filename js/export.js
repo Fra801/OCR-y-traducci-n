@@ -73,6 +73,9 @@ export function toMarkdown(blocks, meta) {
   }).join("\n\n").replace(/\n{3,}/g, "\n\n") + "\n";
 }
 
+/** Epígrafe dentro de una tabla transparente de una celda que ocupa todo el ancho (estilos en línea para que Word los respete). */
+const capBox = h => `<table class="captab" role="presentation" width="100%" border="0" cellspacing="0" cellpadding="0" style="width:100%;border:none;border-collapse:collapse;margin:.6em 0 1em"><tr><td style="border:none;padding:0;text-align:center">${h}</td></tr></table>`;
+
 export function blockHtml(b, { bilingual = false, math = "html", imgSrc = null } = {}) {
   const tag = { h1: "h1", h2: "h2", h3: "h3", quote: "blockquote", caption: "figcaption", footnote: "aside", list_item: "li" }[b.type] || "p";
   const il = t => inline(t, { math });
@@ -90,9 +93,13 @@ export function blockHtml(b, { bilingual = false, math = "html", imgSrc = null }
     const src = imgSrc ? imgSrc(b) : b.img;
     return `<figure class="b b-figure" data-page="${b.page}">${src ? `<img src="${esc(src)}" alt="${esc(b.text || "Figura de la página " + b.page)}" loading="lazy">` : ""}${b.text ? `<div class="fig-desc">${il(b.text)}</div>` : ""}</figure>`;
   }
-  inner = `<${tag} class="b b-${b.type}">${il(b.text)}</${tag}>`;
+  const one = t => {
+    const h = `<${tag} class="b b-${b.type}">${il(t)}</${tag}>`;
+    return b.type === "caption" ? capBox(h) : h;
+  };
+  inner = one(b.text);
   if (bilingual && b.original) {
-    return `<div class="bi" data-page="${b.page}"><div class="bi-o">${`<${tag} class="b b-${b.type}">${il(b.original)}</${tag}>`}</div><div class="bi-t">${inner}</div></div>`;
+    return `<div class="bi" data-page="${b.page}"><div class="bi-o">${one(b.original)}</div><div class="bi-t">${inner}</div></div>`;
   }
   return inner.replace("<" + tag + " ", `<${tag} data-page="${b.page}" `);
 }
@@ -101,7 +108,7 @@ const DOC_CSS = `body{font-family:Georgia,'Times New Roman',serif;max-width:720p
 p{margin:0 0 .8em}
 h1,h2,h3{font-family:Helvetica,Arial,sans-serif;line-height:1.25}h1{font-size:1.8em;margin:1.6em 0 .5em}h2{font-size:1.35em;margin:1.4em 0 .4em}h3{font-size:1.1em}
 blockquote{border-left:3px solid #3247ff;margin:1em 0;padding:.2em 1em;color:#333;font-style:italic}li{margin:.3em 0 .3em 1.2em}
-figcaption{font-size:.9em;color:#555;font-style:italic;text-align:center}aside{font-size:.85em;color:#555;border-top:1px solid #ddd;padding-top:.4em}
+figcaption{font-size:.9em;color:#555;font-style:italic;text-align:center;margin:0}aside{font-size:.85em;color:#555;border-top:1px solid #ddd;padding-top:.4em}
 table{border-collapse:collapse;margin:1em 0;font-size:.92em;width:100%}td,th{border:1px solid #ccc;padding:5px 8px;text-align:left;vertical-align:top}th{background:#f2f2f6}
 .tcap{font-weight:bold;margin-top:1em}figure{margin:1.4em 0;text-align:center}figure img{max-width:100%;height:auto}.fig-desc{font-size:.85em;color:#666;font-style:italic;margin-top:.4em}
 .b-math{margin:1em 0;text-align:center;overflow-x:auto}math{font-size:1.1em}.texmath{font-family:Consolas,monospace;color:#333}.meta{font-family:Helvetica,Arial,sans-serif;font-size:.8em;color:#777;border-bottom:1px solid #ddd;padding-bottom:12px;margin-bottom:24px}`;
@@ -112,7 +119,7 @@ function htmlBody(blocks, opts) {
     if (b.type === "list_item" && !inList) { body += "<ul>"; inList = true; }
     if (b.type !== "list_item" && inList) { body += "</ul>"; inList = false; }
     let h = blockHtml(b, opts).replace(/ data-page="\d+"/, "");
-    if (!["math", "figure", "table"].includes(b.type)) h = h.replace(/ class="[^"]*"/, "");
+    if (!["math", "figure", "table", "caption"].includes(b.type)) h = h.replace(/ class="[^"]*"/, "");
     body += h + "\n";
   }
   if (inList) body += "</ul>";

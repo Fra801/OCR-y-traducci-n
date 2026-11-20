@@ -1,5 +1,5 @@
 // Caché de la app para usarla instalada. Subir la versión cada vez que cambie un archivo.
-const C = "ocr-traduccion-v4";
+const C = "ocr-traduccion-v5";
 const FILES = ["./", "index.html", "styles.css", "manifest.webmanifest", "icon.svg", "icon-192.png",
   "js/app.js", "js/engine.js", "js/gemini.js", "js/pdf.js", "js/store.js", "js/export.js", "js/layout.js",
   "lib/pdf.min.mjs", "lib/pdf.worker.min.mjs", "lib/pdf-lib.esm.min.js",
